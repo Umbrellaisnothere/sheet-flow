@@ -211,19 +211,13 @@ export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="bg-white text-[#217346] hover:bg-white/90"
-              onClick={() => {
-                document.getElementById("apps-script")?.scrollIntoView({
-                  behavior: "smooth",
-                })
-              }}
+            <a
+              href="/script"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-white px-2.5 text-sm font-medium text-[#217346] hover:bg-white/90"
             >
               <Copy data-icon="inline-start" />
               Get Apps Script
-            </Button>
+            </a>
           </div>
         </div>
       </header>

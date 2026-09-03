@@ -122,7 +122,11 @@ function ensureHelperOnSheet_(ss, sheet) {
   helper.setValues([[1, 1]]);
   sheet.getRange(1, col).setNote("Focus Cell row helper. Keep this column hidden.");
   sheet.getRange(1, col + 1).setNote("Focus Cell column helper. Keep this column hidden.");
-  sheet.hideColumns(col, 2);
+  try {
+    sheet.hideColumns(col, 2);
+  } catch (err) {
+    // Columns may already be hidden.
+  }
 
   ss.setNamedRange(focusRowRangeName_(sheet), sheet.getRange(1, col));
   ss.setNamedRange(focusColRangeName_(sheet), sheet.getRange(1, col + 1));
