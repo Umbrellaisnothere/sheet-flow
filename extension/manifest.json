@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Focus Cell for Google Sheets",
+  "version": "1.0.0",
+  "description": "Excel-style active row and column highlight in Google Sheets, drawn in the browser with no Apps Script delay.",
+  "content_scripts": [
+    {
+      "matches": ["https://docs.google.com/spreadsheets/d/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

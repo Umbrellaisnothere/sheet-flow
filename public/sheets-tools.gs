@@ -4,12 +4,22 @@
  * Paste over Code.gs, Save, reload, then:
  * Excel Tools → Enable Focus Cell on this sheet
  *
- * Clicks never write cell values. They only tint a small color window
- * around the selection (your fills are saved and put back). Other tabs
- * stay untouched until you Enable them.
+ * Read this before blaming the code for the delay.
  *
- * Replace the whole file. Old helper-cell / conditional-format versions
- * force the sheet to recalculate and can take ~9 seconds per click.
+ * onSelectionChange is a server-side simple trigger. Every click travels to
+ * Google, starts a script container, changes the document, and comes back.
+ * That round trip is the delay. Google also drops selection events that land
+ * within two seconds of each other, so fast clicking makes it look worse. No
+ * version of this file can beat that floor.
+ *
+ * This version does the least work that is possible on the server: it moves
+ * one conditional-format rule onto the selected rows and columns. It writes no
+ * cell values, so nothing recalculates, and it reads no backgrounds, so your
+ * fills are never touched or overwritten. Expect roughly 1-3 seconds.
+ *
+ * For an instant crosshair, use the browser userscript in this project
+ * instead. It draws over the grid on the same frame as the click and never
+ * contacts a server. Keep this file for Move Visible Records either way.
  */
 
 function onOpen() {
@@ -27,14 +37,49 @@ function onSelectionChange(e) {
     if (!e || !e.range) {
       return;
     }
-    var range = e.range;
-    var sheet = range.getSheet();
-    var sid = String(sheet.getSheetId());
-    if (!isFocusOn_(sid)) {
+    var sheet = e.range.getSheet();
+    if (!isFocusOn_(String(sheet.getSheetId()))) {
       return;
     }
-    paintWindow_(sheet, sid, range.getRow(), range.getColumn());
+    moveFocusRule_(sheet, e.range);
   } catch (err) {}
+}
+
+function focusColor_() {
+  return "#FFF3CD";
+}
+
+/**
+ * Always true, and recognizable when reading rules back. A constant has no
+ * cell references, so Sheets never recalculates anything to evaluate it.
+ */
+function focusFormula_() {
+  return '="focuscell"="focuscell"';
+}
+
+function moveFocusRule_(sheet, selection) {
+  var firstRow = selection.getRow();
+  var firstCol = selection.getColumn();
+  var lastRow = firstRow + selection.getNumRows() - 1;
+  var lastCol = firstCol + selection.getNumColumns() - 1;
+
+  // Open-ended A1 ranges cover the full row and column without asking the
+  // sheet how big it is, and they keep working when rows are added later.
+  var rows = sheet.getRange(firstRow + ":" + lastRow);
+  var cols = sheet.getRange(
+    columnNumberToLetter_(firstCol) + ":" + columnNumberToLetter_(lastCol)
+  );
+
+  var rule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(focusFormula_())
+    .setBackground(focusColor_())
+    .setRanges([rows, cols])
+    .build();
+
+  var rules = rulesWithoutFocus_(sheet);
+  // First, so the crosshair stays visible over the user's own colour rules.
+  rules.unshift(rule);
+  sheet.setConditionalFormatRules(rules);
 }
 
 function enableFocusCell() {
@@ -49,26 +94,18 @@ function enableFocusCell() {
     restoreWindow_(sheet, sid);
   } catch (err2) {}
   try {
-    stripOldFocusRules_(sheet);
+    cleanupLegacyHelpers_(ss, sheet);
   } catch (err3) {}
   try {
-    cleanupLegacyHelpers_(ss, sheet);
-  } catch (err4) {}
-  try {
     deleteSheetNamed_(ss, "_FocusCell");
-  } catch (err5) {}
+  } catch (err4) {}
   rememberFocusOn_(sid, true);
   try {
-    paintWindow_(
-      sheet,
-      sid,
-      sheet.getActiveCell().getRow(),
-      sheet.getActiveCell().getColumn()
-    );
-  } catch (err6) {}
+    moveFocusRule_(sheet, sheet.getActiveRange() || sheet.getRange(1, 1));
+  } catch (err5) {}
   ui.alert(
     "Focus Cell is on for \"" + sheet.getName() + "\"",
-    "Clicks now only tint a small color window around the cell you selected. They do not write values, so the sheet does not recalculate. Other tabs are unchanged. Run Enable again on this tab if an old highlight is still sitting around.",
+    "The highlight is now one conditional-format rule that moves with your selection. No cell values are written, so the sheet does not recalculate, and your fill colours are never overwritten.\n\nThis still waits on Google's onSelectionChange trigger, which takes a second or two per click and cannot be made instant. For a crosshair with no delay at all, install the browser userscript from this project and turn this off.",
     ui.ButtonSet.OK
   );
 }
@@ -84,7 +121,7 @@ function disableFocusCell() {
     restoreWindow_(sheet, sid);
   } catch (err2) {}
   try {
-    stripOldFocusRules_(sheet);
+    sheet.setConditionalFormatRules(rulesWithoutFocus_(sheet));
   } catch (err3) {}
   try {
     cleanupLegacyHelpers_(ss, sheet);
@@ -134,9 +171,8 @@ function isFocusOn_(sid) {
 
 function rememberFocusOn_(sid, on) {
   var key = focusOnKey_(sid);
-  var val = on ? "1" : "0";
   try {
-    CacheService.getScriptCache().put(key, val, 21600);
+    CacheService.getScriptCache().put(key, on ? "1" : "0", 21600);
   } catch (err) {}
   try {
     var props = PropertiesService.getDocumentProperties();
@@ -146,157 +182,102 @@ function rememberFocusOn_(sid, on) {
       props.deleteProperty(key);
     }
   } catch (err2) {}
-  if (!on) {
-    try {
-      CacheService.getScriptCache().remove(windowKey_(sid));
-    } catch (err3) {}
-  }
 }
 
-function readWindow_(sid) {
+/** Every rule on the sheet except ours, in their original order. */
+function rulesWithoutFocus_(sheet) {
+  var needles = [
+    "focuscell",
+    "_FocusCell!",
+    "FocusCell_Row",
+    "FocusCell_Sheet",
+    "FocusCell_R_",
+    "FocusCell_C_",
+  ];
+  var rules = sheet.getConditionalFormatRules();
+  var kept = [];
+  var i;
+  var j;
+  var condition;
+  var values;
+  var formula;
+  var drop;
+  for (i = 0; i < rules.length; i++) {
+    condition = rules[i].getBooleanCondition();
+    if (!condition) {
+      kept.push(rules[i]);
+      continue;
+    }
+    values = condition.getCriteriaValues();
+    formula = values && values.length ? String(values[0]) : "";
+    drop =
+      formula.indexOf("OR(ROW()=$") !== -1 &&
+      formula.indexOf("COLUMN()=$") !== -1;
+    for (j = 0; j < needles.length; j++) {
+      if (formula.indexOf(needles[j]) !== -1) {
+        drop = true;
+      }
+    }
+    if (!drop) {
+      kept.push(rules[i]);
+    }
+  }
+  return kept;
+}
+
+/** Undo the version that painted a colour window around the selection. */
+function restoreWindow_(sheet, sid) {
   var raw = null;
   try {
     raw = CacheService.getScriptCache().get(windowKey_(sid));
   } catch (err) {}
   if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (err2) {
-    return null;
-  }
-}
-
-function writeWindow_(sid, state) {
-  try {
-    CacheService.getScriptCache().put(
-      windowKey_(sid),
-      JSON.stringify(state),
-      21600
-    );
-  } catch (err) {}
-}
-
-function paintWindow_(sheet, sid, row, col) {
-  var prev = readWindow_(sid);
-  if (prev && prev.r === row && prev.c === col) {
     return;
   }
-
-  var maxR = sheet.getMaxRows();
-  var maxC = sheet.getMaxColumns();
-  var h = horizBand_(row, col, maxC);
-  var v = vertBand_(row, col, maxR);
-  var hRange = sheet.getRange(h.r, h.c, 1, h.n);
-  var vRange = sheet.getRange(v.r, v.c, v.n, 1);
-  var hBg = hRange.getBackgrounds();
-  var vBg = vRange.getBackgrounds();
-  if (prev) {
-    stampOriginals_(hBg, h, true, prev);
-    stampOriginals_(vBg, v, false, prev);
-    applyRestore_(sheet, prev);
-  }
-  hRange.setBackground("#FFF3CD");
-  vRange.setBackground("#FFF3CD");
-  writeWindow_(sid, {
-    r: row,
-    c: col,
-    h: h,
-    v: v,
-    hBg: hBg,
-    vBg: vBg,
-  });
-}
-
-function restoreWindow_(sheet, sid) {
-  applyRestore_(sheet, readWindow_(sid));
+  try {
+    var prev = JSON.parse(raw);
+    if (prev && prev.h && prev.v && prev.hBg && prev.vBg) {
+      sheet.getRange(prev.h.r, prev.h.c, 1, prev.h.n).setBackgrounds(prev.hBg);
+      sheet.getRange(prev.v.r, prev.v.c, prev.v.n, 1).setBackgrounds(prev.vBg);
+    }
+  } catch (err2) {}
   try {
     CacheService.getScriptCache().remove(windowKey_(sid));
-  } catch (err) {}
+  } catch (err3) {}
 }
 
-function applyRestore_(sheet, prev) {
-  if (!prev || !prev.h || !prev.v || !prev.hBg || !prev.vBg) {
+/** Undo the version that painted whole rows and columns. */
+function restoreLegacyPaint_(sheet) {
+  var raw = null;
+  try {
+    raw = CacheService.getScriptCache().get("FocusCell_state");
+  } catch (err) {}
+  if (!raw) {
+    try {
+      raw = PropertiesService.getDocumentProperties().getProperty(
+        "FocusCell_state"
+      );
+    } catch (err2) {}
+  }
+  if (!raw) {
     return;
   }
   try {
-    sheet.getRange(prev.h.r, prev.h.c, 1, prev.h.n).setBackgrounds(prev.hBg);
-    sheet.getRange(prev.v.r, prev.v.c, prev.v.n, 1).setBackgrounds(prev.vBg);
-  } catch (err) {}
-}
-
-function stampOriginals_(bg, band, isRow, prev) {
-  var i;
-  var orig;
-  for (i = 0; i < band.n; i++) {
-    orig = isRow
-      ? originalColor_(prev, band.r, band.c + i)
-      : originalColor_(prev, band.r + i, band.c);
-    if (orig) {
-      if (isRow) {
-        bg[0][i] = orig;
-      } else {
-        bg[i][0] = orig;
-      }
+    var prev = JSON.parse(raw);
+    if (prev && prev.rowBg && prev.colBg && prev.sid === sheet.getSheetId()) {
+      sheet.getRange(prev.row, 1, 1, prev.lastCol).setBackgrounds(prev.rowBg);
+      sheet.getRange(1, prev.col, prev.lastRow, 1).setBackgrounds(prev.colBg);
     }
-  }
+  } catch (err3) {}
+  try {
+    CacheService.getScriptCache().remove("FocusCell_state");
+  } catch (err4) {}
+  try {
+    PropertiesService.getDocumentProperties().deleteProperty("FocusCell_state");
+  } catch (err5) {}
 }
 
-function originalColor_(prev, row, col) {
-  if (
-    prev.h &&
-    row === prev.h.r &&
-    col >= prev.h.c &&
-    col < prev.h.c + prev.h.n &&
-    prev.hBg &&
-    prev.hBg[0]
-  ) {
-    return prev.hBg[0][col - prev.h.c];
-  }
-  if (
-    prev.v &&
-    col === prev.v.c &&
-    row >= prev.v.r &&
-    row < prev.v.r + prev.v.n &&
-    prev.vBg &&
-    prev.vBg[row - prev.v.r]
-  ) {
-    return prev.vBg[row - prev.v.r][0];
-  }
-  return null;
-}
-
-function horizBand_(row, col, maxC) {
-  var n = 20;
-  var start = col - 10;
-  if (start < 1) {
-    start = 1;
-  }
-  if (start + n - 1 > maxC) {
-    n = maxC - start + 1;
-  }
-  if (n < 1) {
-    n = 1;
-  }
-  return { r: row, c: start, n: n };
-}
-
-function vertBand_(row, col, maxR) {
-  var n = 40;
-  var start = row - 20;
-  if (start < 1) {
-    start = 1;
-  }
-  if (start + n - 1 > maxR) {
-    n = maxR - start + 1;
-  }
-  if (n < 1) {
-    n = 1;
-  }
-  return { r: start, c: col, n: n };
-}
-
+/** Unhide and forget the hidden helper columns the recalculating version added. */
 function cleanupLegacyHelpers_(ss, sheet) {
   var sid = String(sheet.getSheetId());
   var ranges = [];
@@ -333,89 +314,18 @@ function cleanupLegacyHelpers_(ss, sheet) {
     helperCol = PropertiesService.getDocumentProperties().getProperty(
       "FC_c_" + sid
     );
-  } catch (err4) {}
+  } catch (err2) {}
   if (helperCol) {
     try {
       sheet.showColumns(Number(helperCol), 2);
-    } catch (err5) {}
+    } catch (err3) {}
     try {
       PropertiesService.getDocumentProperties().deleteProperty("FC_c_" + sid);
-    } catch (err6) {}
+    } catch (err4) {}
     try {
       CacheService.getScriptCache().remove("FC_c_" + sid);
-    } catch (err7) {}
+    } catch (err5) {}
   }
-}
-
-function stripOldFocusRules_(sheet) {
-  var needles = [
-    "_FocusCell!",
-    "FocusCell_Row",
-    "FocusCell_Sheet",
-    "FocusCell_R_",
-    "FocusCell_C_",
-  ];
-  var rules = sheet.getConditionalFormatRules();
-  var kept = [];
-  var i;
-  var formula;
-  var drop;
-  var j;
-  var condition;
-  var values;
-  for (i = 0; i < rules.length; i++) {
-    condition = rules[i].getBooleanCondition();
-    if (!condition) {
-      kept.push(rules[i]);
-      continue;
-    }
-    values = condition.getCriteriaValues();
-    formula = values && values.length ? String(values[0]) : "";
-    drop =
-      formula.indexOf("OR(ROW()=$") !== -1 &&
-      formula.indexOf("COLUMN()=$") !== -1;
-    for (j = 0; j < needles.length; j++) {
-      if (needles[j] && formula.indexOf(needles[j]) !== -1) {
-        drop = true;
-      }
-    }
-    if (!drop) {
-      kept.push(rules[i]);
-    }
-  }
-  if (kept.length !== rules.length) {
-    sheet.setConditionalFormatRules(kept);
-  }
-}
-
-function restoreLegacyPaint_(sheet) {
-  var raw = null;
-  try {
-    raw = CacheService.getScriptCache().get("FocusCell_state");
-  } catch (err) {}
-  if (!raw) {
-    try {
-      raw = PropertiesService.getDocumentProperties().getProperty(
-        "FocusCell_state"
-      );
-    } catch (err2) {}
-  }
-  if (!raw) {
-    return;
-  }
-  try {
-    var prev = JSON.parse(raw);
-    if (prev && prev.rowBg && prev.colBg && prev.sid === sheet.getSheetId()) {
-      sheet.getRange(prev.row, 1, 1, prev.lastCol).setBackgrounds(prev.rowBg);
-      sheet.getRange(1, prev.col, prev.lastRow, 1).setBackgrounds(prev.colBg);
-    }
-  } catch (err3) {}
-  try {
-    CacheService.getScriptCache().remove("FocusCell_state");
-  } catch (err4) {}
-  try {
-    PropertiesService.getDocumentProperties().deleteProperty("FocusCell_state");
-  } catch (err5) {}
 }
 
 function deleteSheetNamed_(ss, name) {
@@ -535,4 +445,16 @@ function columnLetterToNumber(letter) {
     column = column * 26 + letter.charCodeAt(i) - 64;
   }
   return column;
+}
+
+function columnNumberToLetter_(column) {
+  var letter = "";
+  var n = column;
+  var rem;
+  while (n > 0) {
+    rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
 }

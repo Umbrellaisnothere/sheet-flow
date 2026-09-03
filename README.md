@@ -1,67 +1,84 @@
 # Focus Cell for Google Sheets
 
-Excel highlights the active row and column, then clears that highlight when you move. Google Sheets does not. Painting the whole row from `onSelectionChange` looks close, then leaves the previous cells highlighted and is slow. Writing helper cells so conditional-format formulas can follow you is slower still: Sheets recalculates the tab on every click.
+Excel highlights the active row and column and clears the highlight when you move. Google Sheets has no equivalent, and the usual Apps Script answer is slow enough to be unusable.
 
-This project tints a small color window around the selection, saves the original fills, and puts them back when you move. It also includes a batched **Move Visible Records** for filtered data — the function most people write with a `setValue` per row.
+This project ships the highlight as a **browser userscript** that draws over the grid with no server round trip, plus an Apps Script file for **Move Visible Records** on filtered data.
 
-## Try it here
+## Why Apps Script cannot do this quickly
+
+`onSelectionChange` is a server-side simple trigger. Every click has to reach Google, start a script container, change the document, and come back. That round trip is the delay, and it is not something the script body can influence — measured attempts here ran from four to nearly nine seconds depending on how much work the trigger did.
+
+Google's own documentation also states that when several selection changes happen within two seconds of each other, only the first and last fire the trigger. Fast clicking is deliberately dropped to keep latency down, so the highlight lags behind where you actually are.
+
+Three approaches were tried server-side, each slower than it looks:
+
+| Approach | Why it disappoints |
+| --- | --- |
+| `setBackground` on the whole row | Never restores the previous row, so highlight sticks, and it destroys real fill colours |
+| Hidden helper cells plus a `ROW()`/`COLUMN()` rule | Writing a value makes the tab recalculate and re-evaluate the rule over every covered cell — the ~9s case |
+| Save and restore backgrounds around the cursor | Two colour reads and two colour writes per click, on top of the trigger cost |
+
+The remaining server-side option is to write nothing at all, which is what `apps-script/Code.gs` now does. It moves one conditional-format rule onto the selected rows and columns. The rule's formula is the constant `="focuscell"="focuscell"`, so no cell is read and nothing recalculates, and because conditional formatting is an overlay your own fills are never touched. That lands around one to three seconds. Better, still not instant, and the trigger floor means it never will be.
+
+## What actually solves it
+
+Draw the highlight in the browser instead. Sheets renders the grid to canvas but keeps the selection outline as real positioned elements, so a small script can read where the cursor is and lay two translucent bands over the grid on the same frame as the click.
+
+- No server round trip, so no delay
+- Never edits the spreadsheet, so it cannot overwrite a fill or trigger a recalculation
+- No Apps Script quota, no per-sheet enabling, works on every tab
+- Handles multi-cell, whole-row, and whole-column picks
+
+This is also what the established tools in this space do, including matsu7089's [Sheets Row Highlighter](https://github.com/matsu7089/sheets-row-highlighter), whose DOM approach this implementation follows.
+
+### Install
+
+**Tampermonkey** (Chrome, Edge, Firefox): install [Tampermonkey](https://www.tampermonkey.net/), create a new script, replace the template with [`userscript/sheets-focus-cell.user.js`](userscript/sheets-focus-cell.user.js), save, and reload your spreadsheet.
+
+**Unpacked extension** (Chrome, Edge): open `chrome://extensions`, turn on Developer mode, choose Load unpacked, and select the [`extension/`](extension) folder.
+
+`Ctrl+Shift+H` toggles the highlight. Colour, opacity, and whether to draw the row, the column, or both live in the `CONFIG` block at the top of the file.
+
+## Move Visible Records
+
+This one belongs in Apps Script: it is a deliberate menu action, so a second of latency does not matter.
+
+1. In the spreadsheet you are using, open **Extensions → Apps Script**.
+2. Replace **the entire** `Code.gs` with [`apps-script/Code.gs`](apps-script/Code.gs) and Save.
+3. Reload the spreadsheet, filter a column, select **one** source column, then **Excel Tools → Move Visible Records…**.
+
+It reads the source and destination once, walks the arrays in memory, then writes each column once and skips the writes entirely if nothing moved. Rows hidden by a filter are skipped, occupied destination cells are left alone, and the selection jumps to the destination so the emptied source is not left selected. The common version of this function calls `setValue` once per row, which is hundreds of round trips.
+
+## Try it locally
 
 ```bash
 npm install
-npm run dev
+npm run build
+npm start
 ```
 
-Open the app, click around the pack list, then **Move visible records** from column D into E. Hidden (filtered) rows stay put. Occupied pack bins are skipped. Selection jumps to the destination so the emptied pick cells are no longer selected.
+- `/` — spreadsheet playground with the crosshair, a filter, and the move
+- `/instant` — the userscript running against a mock of the Sheets DOM
+- `/script` — copy or download `Code.gs`
 
-## Install in Google Sheets
+The mock publishes the same three hooks the real grid does (`#waffle-grid-container`, four `.active-cell-border` elements, `.selection` rectangles), and the page loads the exact file you install, so the behaviour on that page is the behaviour you get in Sheets.
 
-The script must be **bound to the spreadsheet you have open** (Extensions → Apps Script from that file). A standalone Apps Script project will not see your worksheet.
-
-1. In the worksheet you are using, open **Extensions → Apps Script**.
-2. Replace **the entire** `Code.gs` with [`apps-script/Code.gs`](apps-script/Code.gs). Do not leave leftover `var FOCUS_SHEET_NAME = ...` at the top — simple triggers like `onSelectionChange` cannot see those globals and throw `ReferenceError: FOCUS_SHEET_NAME is not defined`.
-3. Save, reload the spreadsheet, stay on your data tab, then **Excel Tools → Enable Focus Cell on this sheet**. Authorize when prompted.
-4. Click cells on that same tab. The current row and column highlight; the previous highlight disappears.
-5. Filter a column, select **one** source column, then **Excel Tools → Move Visible Records…**.
-
-`onSelectionChange` only runs in a container-bound script. It will not run from a standalone script project.
-
-## What was wrong
-
-Typical highlighter:
-
-```javascript
-sheet.getRange(row, 1, 1, lastCol).setBackground("#fff2cc");
+```bash
+npm test    # engine rules, plus guards on both scripts
+npm run sync    # refresh the published copies after editing a source file
 ```
-
-That never restores the previous row, so every cell you visit stays “selected.” It also overwrites real fill colors.
-
-Apps Script simple triggers also cannot reliably read top-level `var` / `const` values. A menu or `onSelectionChange` that uses `FOCUS_SHEET_NAME` then throws `ReferenceError`. This script keeps those strings inside functions, which triggers can see.
-
-Typical mover:
-
-```javascript
-sheet.getRange(row, destCol).setValue(sourceValue);
-sheet.getRange(row, sourceCol).clearContent();
-```
-
-Hundreds of spreadsheet writes. Apps Script is fast in memory and slow per `getRange`.
-
-## What this script does instead
-
-**Focus Cell** never writes cell values on click. It tints about 20 columns of the active row and 40 rows of the active column, stores those original fills in CacheService, and restores them on the next click. That avoids sheet recalculation (the ~9s helper-cell approach) and avoids rewriting the entire row/column (the other slow approach). Enable on a tab also strips leftover conditional-format rules from older versions.
-
-**Move Visible Records** runs on `getActiveSheet()` only. It reads the source and destination once, walks the arrays, then writes each column once (and skips writes if nothing moved). After the move it selects the destination range so the UI does not keep the emptied source selected.
-
-Hidden-by-filter rows are skipped only when a filter exists.
 
 ## Files
 
 | Path | Purpose |
 | --- | --- |
-| `apps-script/Code.gs` | Paste into Google Apps Script |
-| `apps-script/appsscript.json` | V8 runtime + spreadsheet scopes |
-| `src/lib/sheet-engine.ts` | Same move/selection rules as the script |
-| `public/sheets-tools.gs` | Copy source served by the playground |
+| `userscript/sheets-focus-cell.user.js` | The instant highlighter. Source of truth |
+| `extension/` | Manifest plus a synced copy of the same file |
+| `apps-script/Code.gs` | Move Visible Records, and the slower server-side highlight |
+| `apps-script/appsscript.json` | V8 runtime and spreadsheet scopes |
+| `src/components/sheets-dom-mock.tsx` | Stand-in grid exposing the Sheets DOM contract |
+| `src/lib/sheet-engine.ts` | Move and selection rules shared with the playground |
+| `scripts/sync-assets.mjs` | Copies sources into `public/` and `extension/` |
 
 ## License
 

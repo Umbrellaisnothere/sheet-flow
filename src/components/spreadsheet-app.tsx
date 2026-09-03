@@ -10,6 +10,7 @@ import {
   ArrowRightLeft,
   Check,
   Keyboard,
+  Zap,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -213,8 +214,15 @@ export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <a
-              href="/script"
+              href="/instant"
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-white px-2.5 text-sm font-medium text-[#217346] hover:bg-white/90"
+            >
+              <Zap data-icon="inline-start" />
+              Instant crosshair
+            </a>
+            <a
+              href="/script"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/40 px-2.5 text-sm font-medium text-white hover:bg-white/10"
             >
               <Copy data-icon="inline-start" />
               Get Apps Script

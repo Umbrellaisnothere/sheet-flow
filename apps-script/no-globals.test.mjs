@@ -4,8 +4,12 @@ import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { copies } from "../scripts/sync-assets.mjs"
+
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
-const source = fs.readFileSync(path.join(root, "apps-script", "Code.gs"), "utf8")
+const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8")
+const source = read("apps-script/Code.gs")
+const userscript = read("userscript/sheets-focus-cell.user.js")
 
 function functionBody(name) {
   const start = source.indexOf("function " + name + "(")
@@ -20,29 +24,39 @@ test("Apps Script has no top-level var/const/let (simple-trigger safe)", () => {
       assert.fail("top-level binding would break onSelectionChange: " + line)
     }
   }
-  assert.equal(/var\s+FOCUS_SHEET_NAME/.test(source), false)
   assert.match(source, /function onSelectionChange\(/)
   assert.doesNotMatch(source, /INDIRECT\(/)
   assert.doesNotMatch(source, /getRangeByName\(/)
-  assert.doesNotMatch(source, /removeNamedRange\(/)
 })
 
-test("click path does not write values or rebuild conditional formatting", () => {
-  const body = functionBody("onSelectionChange")
-  assert.doesNotMatch(body, /setValues/)
-  assert.doesNotMatch(body, /getLastRow/)
-  assert.doesNotMatch(body, /getLastColumn/)
-  assert.doesNotMatch(body, /getConditionalFormatRules/)
-  assert.doesNotMatch(body, /getNamedRanges/)
-  assert.doesNotMatch(body, /newConditionalFormatRule/)
-  assert.match(body, /paintWindow_/)
+test("click path only moves a rule: no value writes, no colour reads", () => {
+  for (const name of ["onSelectionChange", "moveFocusRule_"]) {
+    const body = functionBody(name)
+    assert.doesNotMatch(body, /setValues?\(/, name)
+    assert.doesNotMatch(body, /getBackgrounds?\(/, name)
+    assert.doesNotMatch(body, /setBackgrounds\(/, name)
+    assert.doesNotMatch(body, /getLastRow|getLastColumn|getMaxRows|getMaxColumns/, name)
+  }
+  assert.match(functionBody("onSelectionChange"), /moveFocusRule_/)
 })
 
-test("paint window restores a small color band instead of the whole row", () => {
-  const body = functionBody("paintWindow_")
-  assert.match(body, /getBackgrounds/)
-  assert.match(body, /setBackground/)
-  assert.doesNotMatch(body, /setValues/)
-  assert.doesNotMatch(body, /getLastRow/)
-  assert.doesNotMatch(body, /getLastColumn/)
+test("focus rule uses a constant formula so nothing recalculates", () => {
+  const formula = functionBody("focusFormula_")
+  assert.doesNotMatch(formula, /ROW\(\)|COLUMN\(\)/)
+  assert.match(formula, /focuscell/)
+  assert.match(functionBody("rulesWithoutFocus_"), /focuscell/)
+})
+
+test("userscript never writes to the spreadsheet", () => {
+  assert.doesNotMatch(userscript, /SpreadsheetApp|google\.script\.run|fetch\(/)
+  assert.match(userscript, /waffle-grid-container/)
+  assert.match(userscript, /active-cell-border/)
+  assert.match(userscript, /requestAnimationFrame/)
+  assert.match(userscript, /pointerEvents/)
+})
+
+test("published copies are in sync with their sources", () => {
+  for (const [from, to] of copies) {
+    assert.equal(read(to), read(from), `${to} is stale, run npm run sync`)
+  }
 })
