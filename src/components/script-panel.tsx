@@ -66,9 +66,8 @@ export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
           <p className="mt-1">
             Reload that worksheet. Open{" "}
             <strong>Excel Tools → Enable Focus Cell on this sheet</strong> and
-            authorize. Helper cells stay on this same tab (Sheets cannot
-            highlight from another sheet). After that, clicks only write
-            those two hidden cells.
+            authorize. Enable is required: it strips leftover highlight
+            rules from older versions that made each click wait ~9 seconds.
           </p>
         </li>
         <li className="rounded-lg border bg-muted/30 p-3">

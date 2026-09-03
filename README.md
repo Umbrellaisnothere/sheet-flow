@@ -1,8 +1,8 @@
 # Focus Cell for Google Sheets
 
-Excel highlights the active row and column, then clears that highlight when you move. Google Sheets does not. Painting fills from `onSelectionChange` looks close, then leaves the previous cells highlighted and is slow.
+Excel highlights the active row and column, then clears that highlight when you move. Google Sheets does not. Painting the whole row from `onSelectionChange` looks close, then leaves the previous cells highlighted and is slow. Writing helper cells so conditional-format formulas can follow you is slower still: Sheets recalculates the tab on every click.
 
-This project does it the way Excel does: the highlight is overlay formatting that follows one stored cell, so leftover color cannot stick. It also includes a batched **Move Visible Records** for filtered data — the function most people write with a `setValue` per row.
+This project tints a small color window around the selection, saves the original fills, and puts them back when you move. It also includes a batched **Move Visible Records** for filtered data — the function most people write with a `setValue` per row.
 
 ## Try it here
 
@@ -48,7 +48,7 @@ Hundreds of spreadsheet writes. Apps Script is fast in memory and slow per `getR
 
 ## What this script does instead
 
-**Focus Cell** writes two hidden cells on the active tab. A small overlay (up to 80×12) follows those cells, so your fills are not overwritten. The version that saved/restored hundreds of backgrounds on every click was slower, not faster.
+**Focus Cell** never writes cell values on click. It tints about 20 columns of the active row and 40 rows of the active column, stores those original fills in CacheService, and restores them on the next click. That avoids sheet recalculation (the ~9s helper-cell approach) and avoids rewriting the entire row/column (the other slow approach). Enable on a tab also strips leftover conditional-format rules from older versions.
 
 **Move Visible Records** runs on `getActiveSheet()` only. It reads the source and destination once, walks the arrays, then writes each column once (and skips writes if nothing moved). After the move it selects the destination range so the UI does not keep the emptied source selected.
 

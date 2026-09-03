@@ -4,11 +4,12 @@
  * Paste over Code.gs, Save, reload, then:
  * Excel Tools → Enable Focus Cell on this sheet
  *
- * Clicks write TWO hidden cells on this tab only. Highlight is a small
- * conditional-format overlay (your fills are never overwritten). Other
- * tabs are untouched until you Enable them.
+ * Clicks never write cell values. They only tint a small color window
+ * around the selection (your fills are saved and put back). Other tabs
+ * stay untouched until you Enable them.
  *
- * The 8s paint version is gone. Do not keep any old script.
+ * Replace the whole file. Old helper-cell / conditional-format versions
+ * force the sheet to recalculate and can take ~9 seconds per click.
  */
 
 function onOpen() {
@@ -26,39 +27,39 @@ function onSelectionChange(e) {
     if (!e || !e.range) {
       return;
     }
-    var sheet = e.range.getSheet();
-    var helperCol = helperCol_(String(sheet.getSheetId()));
-    if (!helperCol) {
+    var range = e.range;
+    var sheet = range.getSheet();
+    var sid = String(sheet.getSheetId());
+    if (!isFocusOn_(sid)) {
       return;
     }
-    sheet
-      .getRange(1, helperCol, 1, 2)
-      .setValues([[e.range.getRow(), e.range.getColumn()]]);
+    paintWindow_(sheet, sid, range.getRow(), range.getColumn());
   } catch (err) {}
 }
 
 function enableFocusCell() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
+  var sid = String(sheet.getSheetId());
   var ui = SpreadsheetApp.getUi();
 
-  undoPaintIfAny_(sheet);
+  restoreLegacyPaint_(sheet);
+  restoreWindow_(sheet, sid);
   stripOldFocusRules_(sheet);
+  cleanupLegacyHelpers_(ss, sheet);
   deleteSheetNamed_(ss, "_FocusCell");
+  rememberFocusOn_(sid, true);
 
-  var helper = ensureHelpers_(ss, sheet);
-  var helperCol = helper.getColumn();
-  rememberHelperCol_(sheet, helperCol);
-  stripOldFocusRules_(sheet);
-  addFocusRule_(sheet, helper);
-
-  helper.setValues([
-    [sheet.getActiveCell().getRow(), sheet.getActiveCell().getColumn()],
-  ]);
+  paintWindow_(
+    sheet,
+    sid,
+    sheet.getActiveCell().getRow(),
+    sheet.getActiveCell().getColumn()
+  );
 
   ui.alert(
     "Focus Cell is on for \"" + sheet.getName() + "\"",
-    "Each click now writes two hidden cells. Highlight covers this tab’s data block (up to 80 rows × 12 columns) so it stays fast. Run Enable again if you add a large new block of rows.",
+    "Clicks now only tint a small color window around the cell you selected. They do not write values, so the sheet does not recalculate. Other tabs are unchanged. Run Enable again on this tab if an old highlight is still sitting around.",
     ui.ButtonSet.OK
   );
 }
@@ -66,103 +67,259 @@ function enableFocusCell() {
 function disableFocusCell() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
-  undoPaintIfAny_(sheet);
+  var sid = String(sheet.getSheetId());
+  restoreLegacyPaint_(sheet);
+  restoreWindow_(sheet, sid);
   stripOldFocusRules_(sheet);
-  forgetHelperCol_(sheet);
+  cleanupLegacyHelpers_(ss, sheet);
+  rememberFocusOn_(sid, false);
   SpreadsheetApp.getUi().alert(
     "Focus Cell is off for \"" + sheet.getName() + "\"."
   );
 }
 
-function helperColKey_(sid) {
-  return "FC_c_" + sid;
+function focusOnKey_(sid) {
+  return "FC_on_" + sid;
 }
 
-function helperCol_(sid) {
-  var key = helperColKey_(sid);
+function windowKey_(sid) {
+  return "FC_w_" + sid;
+}
+
+function isFocusOn_(sid) {
+  var key = focusOnKey_(sid);
   var hit = null;
   try {
     hit = CacheService.getScriptCache().get(key);
   } catch (err) {}
-  if (hit) {
-    return Number(hit);
+  if (hit === "1") {
+    return true;
+  }
+  if (hit === "0") {
+    return false;
   }
   try {
     hit = PropertiesService.getDocumentProperties().getProperty(key);
   } catch (err2) {
-    return 0;
+    return false;
   }
-  if (!hit) {
-    return 0;
+  if (hit === "1") {
+    try {
+      CacheService.getScriptCache().put(key, "1", 21600);
+    } catch (err3) {}
+    return true;
   }
   try {
-    CacheService.getScriptCache().put(key, hit, 21600);
-  } catch (err3) {}
-  return Number(hit);
+    CacheService.getScriptCache().put(key, "0", 600);
+  } catch (err4) {}
+  return false;
 }
 
-function rememberHelperCol_(sheet, col) {
-  var key = helperColKey_(String(sheet.getSheetId()));
-  var val = String(col);
+function rememberFocusOn_(sid, on) {
+  var key = focusOnKey_(sid);
+  var val = on ? "1" : "0";
   try {
     CacheService.getScriptCache().put(key, val, 21600);
   } catch (err) {}
   try {
-    PropertiesService.getDocumentProperties().setProperty(key, val);
+    var props = PropertiesService.getDocumentProperties();
+    if (on) {
+      props.setProperty(key, "1");
+    } else {
+      props.deleteProperty(key);
+    }
   } catch (err2) {}
-}
-
-function forgetHelperCol_(sheet) {
-  var key = helperColKey_(String(sheet.getSheetId()));
-  try {
-    CacheService.getScriptCache().remove(key);
-  } catch (err) {}
-  try {
-    PropertiesService.getDocumentProperties().deleteProperty(key);
-  } catch (err2) {}
-}
-
-function ensureHelpers_(ss, sheet) {
-  var existing = ss.getRangeByName("FocusCell_R_" + sheet.getSheetId());
-  if (existing) {
-    return sheet.getRange(existing.getRow(), existing.getColumn(), 1, 2);
+  if (!on) {
+    try {
+      CacheService.getScriptCache().remove(windowKey_(sid));
+    } catch (err3) {}
   }
-  var col = sheet.getLastColumn() + 1;
-  if (col < 2) {
-    col = 2;
-  }
-  var helper = sheet.getRange(1, col, 1, 2);
-  helper.setValues([[1, 1]]);
-  try {
-    sheet.hideColumns(col, 2);
-  } catch (err) {}
-  ss.setNamedRange("FocusCell_R_" + sheet.getSheetId(), sheet.getRange(1, col));
-  ss.setNamedRange("FocusCell_C_" + sheet.getSheetId(), sheet.getRange(1, col + 1));
-  return helper;
 }
 
-function addFocusRule_(sheet, helper) {
-  var rowA1 = absA1_(helper.offset(0, 0, 1, 1));
-  var colA1 = absA1_(helper.offset(0, 1, 1, 1));
-  var helperCol = helper.getColumn();
-  var rows = Math.min(Math.max(sheet.getLastRow(), 1), 80, sheet.getMaxRows());
-  var cols = Math.min(Math.max(helperCol - 1, 1), 12, sheet.getMaxColumns());
-  var range = sheet.getRange(1, 1, rows, cols);
-  var formula = "=OR(ROW()=" + rowA1 + ",COLUMN()=" + colA1 + ")";
-  var rule = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(formula)
-    .setBackground("#FFF3CD")
-    .setRanges([range])
-    .build();
-  var rules = sheet.getConditionalFormatRules();
-  rules.push(rule);
-  sheet.setConditionalFormatRules(rules);
+function readWindow_(sid) {
+  var raw = null;
+  try {
+    raw = CacheService.getScriptCache().get(windowKey_(sid));
+  } catch (err) {}
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err2) {
+    return null;
+  }
+}
+
+function writeWindow_(sid, state) {
+  try {
+    CacheService.getScriptCache().put(
+      windowKey_(sid),
+      JSON.stringify(state),
+      21600
+    );
+  } catch (err) {}
+}
+
+function paintWindow_(sheet, sid, row, col) {
+  var prev = readWindow_(sid);
+  if (prev && prev.r === row && prev.c === col) {
+    return;
+  }
+
+  var maxR = sheet.getMaxRows();
+  var maxC = sheet.getMaxColumns();
+  var h = horizBand_(row, col, maxC);
+  var v = vertBand_(row, col, maxR);
+  var hRange = sheet.getRange(h.r, h.c, 1, h.n);
+  var vRange = sheet.getRange(v.r, v.c, v.n, 1);
+  var hBg = hRange.getBackgrounds();
+  var vBg = vRange.getBackgrounds();
+  if (prev) {
+    stampOriginals_(hBg, h, true, prev);
+    stampOriginals_(vBg, v, false, prev);
+    applyRestore_(sheet, prev);
+  }
+  hRange.setBackground("#FFF3CD");
+  vRange.setBackground("#FFF3CD");
+  writeWindow_(sid, {
+    r: row,
+    c: col,
+    h: h,
+    v: v,
+    hBg: hBg,
+    vBg: vBg,
+  });
+}
+
+function restoreWindow_(sheet, sid) {
+  applyRestore_(sheet, readWindow_(sid));
+  try {
+    CacheService.getScriptCache().remove(windowKey_(sid));
+  } catch (err) {}
+}
+
+function applyRestore_(sheet, prev) {
+  if (!prev || !prev.h || !prev.v || !prev.hBg || !prev.vBg) {
+    return;
+  }
+  try {
+    sheet.getRange(prev.h.r, prev.h.c, 1, prev.h.n).setBackgrounds(prev.hBg);
+    sheet.getRange(prev.v.r, prev.v.c, prev.v.n, 1).setBackgrounds(prev.vBg);
+  } catch (err) {}
+}
+
+function stampOriginals_(bg, band, isRow, prev) {
+  var i;
+  var orig;
+  for (i = 0; i < band.n; i++) {
+    orig = isRow
+      ? originalColor_(prev, band.r, band.c + i)
+      : originalColor_(prev, band.r + i, band.c);
+    if (orig) {
+      if (isRow) {
+        bg[0][i] = orig;
+      } else {
+        bg[i][0] = orig;
+      }
+    }
+  }
+}
+
+function originalColor_(prev, row, col) {
+  if (
+    prev.h &&
+    row === prev.h.r &&
+    col >= prev.h.c &&
+    col < prev.h.c + prev.h.n &&
+    prev.hBg &&
+    prev.hBg[0]
+  ) {
+    return prev.hBg[0][col - prev.h.c];
+  }
+  if (
+    prev.v &&
+    col === prev.v.c &&
+    row >= prev.v.r &&
+    row < prev.v.r + prev.v.n &&
+    prev.vBg &&
+    prev.vBg[row - prev.v.r]
+  ) {
+    return prev.vBg[row - prev.v.r][0];
+  }
+  return null;
+}
+
+function horizBand_(row, col, maxC) {
+  var n = 20;
+  var start = col - 10;
+  if (start < 1) {
+    start = 1;
+  }
+  if (start + n - 1 > maxC) {
+    n = maxC - start + 1;
+  }
+  if (n < 1) {
+    n = 1;
+  }
+  return { r: row, c: start, n: n };
+}
+
+function vertBand_(row, col, maxR) {
+  var n = 40;
+  var start = row - 20;
+  if (start < 1) {
+    start = 1;
+  }
+  if (start + n - 1 > maxR) {
+    n = maxR - start + 1;
+  }
+  if (n < 1) {
+    n = 1;
+  }
+  return { r: start, c: col, n: n };
+}
+
+function cleanupLegacyHelpers_(ss, sheet) {
+  var sid = String(sheet.getSheetId());
+  var names = ["FocusCell_R_" + sid, "FocusCell_C_" + sid];
+  var i;
+  var named;
+  for (i = 0; i < names.length; i++) {
+    named = ss.getRangeByName(names[i]);
+    if (named && named.getSheet().getSheetId() === sheet.getSheetId()) {
+      try {
+        sheet.showColumns(named.getColumn(), 1);
+      } catch (err) {}
+    }
+    try {
+      ss.removeNamedRange(names[i]);
+    } catch (err2) {}
+  }
+  var helperCol = null;
+  try {
+    helperCol = PropertiesService.getDocumentProperties().getProperty(
+      "FC_c_" + sid
+    );
+  } catch (err3) {}
+  if (helperCol) {
+    try {
+      sheet.showColumns(Number(helperCol), 2);
+    } catch (err4) {}
+    try {
+      PropertiesService.getDocumentProperties().deleteProperty("FC_c_" + sid);
+    } catch (err5) {}
+    try {
+      CacheService.getScriptCache().remove("FC_c_" + sid);
+    } catch (err6) {}
+  }
 }
 
 function stripOldFocusRules_(sheet) {
   var ss = sheet.getParent();
-  var rowCell = ss.getRangeByName("FocusCell_R_" + sheet.getSheetId());
-  var colCell = ss.getRangeByName("FocusCell_C_" + sheet.getSheetId());
+  var sid = String(sheet.getSheetId());
+  var rowCell = ss.getRangeByName("FocusCell_R_" + sid);
+  var colCell = ss.getRangeByName("FocusCell_C_" + sid);
   var needles = ["_FocusCell!", "FocusCell_Row", "FocusCell_Sheet"];
   if (rowCell) {
     needles.push(absA1_(rowCell));
@@ -198,10 +355,12 @@ function stripOldFocusRules_(sheet) {
       kept.push(rules[i]);
     }
   }
-  sheet.setConditionalFormatRules(kept);
+  if (kept.length !== rules.length) {
+    sheet.setConditionalFormatRules(kept);
+  }
 }
 
-function undoPaintIfAny_(sheet) {
+function restoreLegacyPaint_(sheet) {
   var raw = null;
   try {
     raw = CacheService.getScriptCache().get("FocusCell_state");

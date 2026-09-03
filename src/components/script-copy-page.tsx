@@ -28,8 +28,8 @@ export function ScriptCopyPage({ scriptSource }: { scriptSource: string }) {
             <h1 className="text-xl font-semibold">Code.gs</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Paste this entire file into the spreadsheet you have open. It only
-              highlights the tab you Enable it on, and it never paints over
-              existing fill colors.
+              highlights the tab you Enable, never writes cell values, and puts
+              your fills back when you move.
             </p>
           </div>
           <div className="flex gap-2">

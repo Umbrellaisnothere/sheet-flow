@@ -206,8 +206,9 @@ export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
             </h1>
             <p className="max-w-xl text-sm text-white/85">
               Excel highlights the active row and column, then clears them when
-              you move. Sheets does not. This restores that behavior, and moves
-              filtered records without the leftover-selection bug.
+              you move. Sheets does not. This restores that, without rewriting
+              the whole sheet on every click, and moves filtered records without
+              the leftover-selection bug.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -437,11 +438,13 @@ function HowItWorks({
 }) {
   return (
     <div className="rounded-lg border border-[#d0d0d0] bg-white p-4 shadow-sm">
-      <h2 className="font-heading text-base font-medium">Why the old script stuck</h2>
+      <h2 className="font-heading text-base font-medium">Why the old script stuck — and why it got slow</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Painting <code className="rounded bg-muted px-1">setBackground</code> on
-        the current row never restores the previous one. Click another cell and
-        the old highlight stays. Excel does not work that way.
+        Painting the whole row never restores the previous one, so highlight
+        piles up. Writing helper cells so formulas can follow you is worse:
+        Sheets recalculates the tab, which is why a click can sit there for
+        eight seconds. This playground highlights in the browser. The Apps
+        Script only tints a small color window around the cell you clicked.
       </p>
       <ol className="mt-3 space-y-2 text-sm">
         <li>
