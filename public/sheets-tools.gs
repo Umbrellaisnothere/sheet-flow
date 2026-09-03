@@ -42,21 +42,30 @@ function enableFocusCell() {
   var sheet = ss.getActiveSheet();
   var sid = String(sheet.getSheetId());
   var ui = SpreadsheetApp.getUi();
-
-  restoreLegacyPaint_(sheet);
-  restoreWindow_(sheet, sid);
-  stripOldFocusRules_(sheet);
-  cleanupLegacyHelpers_(ss, sheet);
-  deleteSheetNamed_(ss, "_FocusCell");
+  try {
+    restoreLegacyPaint_(sheet);
+  } catch (err) {}
+  try {
+    restoreWindow_(sheet, sid);
+  } catch (err2) {}
+  try {
+    stripOldFocusRules_(sheet);
+  } catch (err3) {}
+  try {
+    cleanupLegacyHelpers_(ss, sheet);
+  } catch (err4) {}
+  try {
+    deleteSheetNamed_(ss, "_FocusCell");
+  } catch (err5) {}
   rememberFocusOn_(sid, true);
-
-  paintWindow_(
-    sheet,
-    sid,
-    sheet.getActiveCell().getRow(),
-    sheet.getActiveCell().getColumn()
-  );
-
+  try {
+    paintWindow_(
+      sheet,
+      sid,
+      sheet.getActiveCell().getRow(),
+      sheet.getActiveCell().getColumn()
+    );
+  } catch (err6) {}
   ui.alert(
     "Focus Cell is on for \"" + sheet.getName() + "\"",
     "Clicks now only tint a small color window around the cell you selected. They do not write values, so the sheet does not recalculate. Other tabs are unchanged. Run Enable again on this tab if an old highlight is still sitting around.",
@@ -68,10 +77,18 @@ function disableFocusCell() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var sid = String(sheet.getSheetId());
-  restoreLegacyPaint_(sheet);
-  restoreWindow_(sheet, sid);
-  stripOldFocusRules_(sheet);
-  cleanupLegacyHelpers_(ss, sheet);
+  try {
+    restoreLegacyPaint_(sheet);
+  } catch (err) {}
+  try {
+    restoreWindow_(sheet, sid);
+  } catch (err2) {}
+  try {
+    stripOldFocusRules_(sheet);
+  } catch (err3) {}
+  try {
+    cleanupLegacyHelpers_(ss, sheet);
+  } catch (err4) {}
   rememberFocusOn_(sid, false);
   SpreadsheetApp.getUi().alert(
     "Focus Cell is off for \"" + sheet.getName() + "\"."
@@ -282,51 +299,62 @@ function vertBand_(row, col, maxR) {
 
 function cleanupLegacyHelpers_(ss, sheet) {
   var sid = String(sheet.getSheetId());
-  var names = ["FocusCell_R_" + sid, "FocusCell_C_" + sid];
+  var ranges = [];
   var i;
-  var named;
-  for (i = 0; i < names.length; i++) {
-    named = ss.getRangeByName(names[i]);
-    if (named && named.getSheet().getSheetId() === sheet.getSheetId()) {
-      try {
-        sheet.showColumns(named.getColumn(), 1);
-      } catch (err) {}
+  var name;
+  var range;
+  try {
+    ranges = ss.getNamedRanges();
+  } catch (err) {}
+  for (i = 0; i < ranges.length; i++) {
+    try {
+      name = ranges[i].getName();
+    } catch (errName) {
+      continue;
+    }
+    if (
+      name.indexOf("FocusCell_R_") !== 0 &&
+      name.indexOf("FocusCell_C_") !== 0
+    ) {
+      continue;
     }
     try {
-      ss.removeNamedRange(names[i]);
-    } catch (err2) {}
+      range = ranges[i].getRange();
+      if (range && range.getSheet().getSheetId() === sheet.getSheetId()) {
+        sheet.showColumns(range.getColumn(), 1);
+      }
+    } catch (errShow) {}
+    try {
+      ranges[i].remove();
+    } catch (errRemove) {}
   }
   var helperCol = null;
   try {
     helperCol = PropertiesService.getDocumentProperties().getProperty(
       "FC_c_" + sid
     );
-  } catch (err3) {}
+  } catch (err4) {}
   if (helperCol) {
     try {
       sheet.showColumns(Number(helperCol), 2);
-    } catch (err4) {}
-    try {
-      PropertiesService.getDocumentProperties().deleteProperty("FC_c_" + sid);
     } catch (err5) {}
     try {
-      CacheService.getScriptCache().remove("FC_c_" + sid);
+      PropertiesService.getDocumentProperties().deleteProperty("FC_c_" + sid);
     } catch (err6) {}
+    try {
+      CacheService.getScriptCache().remove("FC_c_" + sid);
+    } catch (err7) {}
   }
 }
 
 function stripOldFocusRules_(sheet) {
-  var ss = sheet.getParent();
-  var sid = String(sheet.getSheetId());
-  var rowCell = ss.getRangeByName("FocusCell_R_" + sid);
-  var colCell = ss.getRangeByName("FocusCell_C_" + sid);
-  var needles = ["_FocusCell!", "FocusCell_Row", "FocusCell_Sheet"];
-  if (rowCell) {
-    needles.push(absA1_(rowCell));
-  }
-  if (colCell) {
-    needles.push(absA1_(colCell));
-  }
+  var needles = [
+    "_FocusCell!",
+    "FocusCell_Row",
+    "FocusCell_Sheet",
+    "FocusCell_R_",
+    "FocusCell_C_",
+  ];
   var rules = sheet.getConditionalFormatRules();
   var kept = [];
   var i;
@@ -388,15 +416,6 @@ function restoreLegacyPaint_(sheet) {
   try {
     PropertiesService.getDocumentProperties().deleteProperty("FocusCell_state");
   } catch (err5) {}
-}
-
-function absA1_(range) {
-  var a1 = range.getA1Notation();
-  var i = 0;
-  while (i < a1.length && a1.charCodeAt(i) >= 65 && a1.charCodeAt(i) <= 90) {
-    i++;
-  }
-  return "$" + a1.substring(0, i) + "$" + a1.substring(i);
 }
 
 function deleteSheetNamed_(ss, name) {

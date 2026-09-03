@@ -23,6 +23,8 @@ test("Apps Script has no top-level var/const/let (simple-trigger safe)", () => {
   assert.equal(/var\s+FOCUS_SHEET_NAME/.test(source), false)
   assert.match(source, /function onSelectionChange\(/)
   assert.doesNotMatch(source, /INDIRECT\(/)
+  assert.doesNotMatch(source, /getRangeByName\(/)
+  assert.doesNotMatch(source, /removeNamedRange\(/)
 })
 
 test("click path does not write values or rebuild conditional formatting", () => {
