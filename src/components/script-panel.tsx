@@ -66,8 +66,8 @@ export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
           <p className="mt-1">
             Reload that worksheet. Open{" "}
             <strong>Excel Tools → Enable Focus Cell on this sheet</strong> and
-            authorize. Click cells on <em>this</em> tab only: the highlight
-            follows, the old one clears.
+            authorize (that step does the heavy setup once). After that, clicks
+            only write three cells, so the highlight should feel instant.
           </p>
         </li>
         <li className="rounded-lg border bg-muted/30 p-3">

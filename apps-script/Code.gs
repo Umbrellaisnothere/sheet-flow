@@ -2,20 +2,15 @@
  * Excel Tools for Google Sheets
  *
  * Paste this entire file into the Apps Script project ATTACHED to your
- * spreadsheet (Extensions → Apps Script). Do not run it as a standalone
- * project. It only touches the worksheet you are on.
+ * spreadsheet (Extensions → Apps Script). Replace Code.gs in full.
  *
- * Why there are no global var/const values
- *   Simple triggers (onSelectionChange, onOpen) often cannot see top-level
- *   variables and throw: ReferenceError: FOCUS_SHEET_NAME is not defined.
- *   Function declarations are visible. Constants live inside functions.
+ * Speed
+ *   Clicks only write three cells. Highlight rules are installed once
+ *   (Enable) on this sheet’s used area — not 2,000×40 INDIRECT formulas
+ *   on every selection. Move Visible Records reads twice and writes twice.
  *
- * 1. Focus Cell — overlay highlight via conditional formatting on THIS
- *    sheet. A hidden helper tab stores the active row/column (formatting
- *    cannot read PropertiesService). Your data cells are never painted.
- *
- * 2. Move Visible Records — batched move of filtered-in values on THIS
- *    sheet, without overwriting destination cells.
+ * No top-level var/const — simple triggers cannot see them
+ *   (ReferenceError: FOCUS_SHEET_NAME is not defined).
  */
 
 function onOpen() {
@@ -33,12 +28,12 @@ function focusHelperName_() {
 }
 
 function focusRuleMarker_() {
-  return "_FocusCell!";
+  return "FocusCell_Row";
 }
 
 /**
- * Fires when you click or arrow to a cell on the current worksheet.
- * Safe to run as a simple trigger: no globals, no UI, no extra services.
+ * Click handler. One sheet lookup + one 3-cell write. No formatting,
+ * no inserts, no reads — that work belongs in Enable, not on every click.
  */
 function onSelectionChange(e) {
   try {
@@ -47,30 +42,23 @@ function onSelectionChange(e) {
     }
 
     var sheet = e.range.getSheet();
-    var helperName = focusHelperName_();
-    if (sheet.getName() === helperName) {
+    if (sheet.getName() === focusHelperName_()) {
       return;
     }
 
-    var ss = e.source ? e.source : SpreadsheetApp.getActiveSpreadsheet();
-    var focus = ensureFocusHelper_(ss, sheet);
+    var ss = e.source;
+    if (!ss) {
+      return;
+    }
+
+    var focus = ss.getSheetByName(focusHelperName_());
     if (!focus) {
       return;
     }
 
-    var name = sheet.getName();
-    var prev = focus.getRange(1, 1, 1, 3).getValues()[0];
-    if (String(prev[2]) !== name) {
-      installFocusFormatting_(sheet);
-    }
-
-    var row = e.range.getRow();
-    var col = e.range.getColumn();
-    if (prev[0] === row && prev[1] === col && String(prev[2]) === name) {
-      return;
-    }
-
-    focus.getRange(1, 1, 1, 3).setValues([[row, col, name]]);
+    focus
+      .getRange(1, 1, 1, 3)
+      .setValues([[e.range.getRow(), e.range.getColumn(), sheet.getName()]]);
   } catch (err) {
     // Simple triggers should not throw into the Sheets UI.
   }
@@ -88,22 +76,29 @@ function enableFocusCell() {
 
   var focus = ensureFocusHelper_(ss, sheet);
   if (!focus) {
-    ui.alert("Could not create the hidden helper tab. Try reloading the spreadsheet.");
+    ui.alert(
+      "Could not create the hidden helper tab. Try reloading the spreadsheet."
+    );
     return;
   }
 
+  ensureNamedRanges_(ss, focus);
   installFocusFormatting_(sheet);
   focus
     .getRange(1, 1, 1, 3)
-    .setValues([[sheet.getActiveCell().getRow(), sheet.getActiveCell().getColumn(), sheet.getName()]]);
+    .setValues([
+      [
+        sheet.getActiveCell().getRow(),
+        sheet.getActiveCell().getColumn(),
+        sheet.getName(),
+      ],
+    ]);
   ss.setActiveSheet(sheet);
 
   ui.alert(
-    "Focus Cell is on for \"" +
-      sheet.getName() +
-      "\"",
-    "Click any cell on this worksheet. The current row and column highlight like Excel.\n\n" +
-      "The previous highlight clears on its own. Other sheets are left alone until you click them.",
+    "Focus Cell is on for \"" + sheet.getName() + "\"",
+    "Clicks now only update three helper cells, so the highlight should feel instant.\n\n" +
+      "Rules cover this sheet’s used area (not the whole grid). Run Enable again if you add a large block of new rows.",
     ui.ButtonSet.OK
   );
 }
@@ -138,37 +133,38 @@ function ensureFocusHelper_(ss, dataSheet) {
   return focus;
 }
 
+function ensureNamedRanges_(ss, focus) {
+  ss.setNamedRange("FocusCell_Row", focus.getRange("A1"));
+  ss.setNamedRange("FocusCell_Col", focus.getRange("B1"));
+  ss.setNamedRange("FocusCell_Sheet", focus.getRange("C1"));
+}
+
+function focusDataRange_(sheet) {
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  var rows = Math.min(Math.max(lastRow + 20, 30), 800, sheet.getMaxRows());
+  var cols = Math.min(Math.max(lastCol + 1, 8), 26, sheet.getMaxColumns());
+  return sheet.getRange(1, 1, rows, cols);
+}
+
 function installFocusFormatting_(sheet) {
   removeFocusFormatting_(sheet);
 
-  var helperName = focusHelperName_();
-  var rows = Math.min(sheet.getMaxRows(), 2000);
-  var cols = Math.min(sheet.getMaxColumns(), 40);
-  var range = sheet.getRange(1, 1, rows, cols);
+  var range = focusDataRange_(sheet);
   var quotedName = quoteFormulaString_(sheet.getName());
-  var rowRef = 'INDIRECT("' + helperName + '!$A$1")';
-  var colRef = 'INDIRECT("' + helperName + '!$B$1")';
-  var sheetRef = 'INDIRECT("' + helperName + '!$C$1")';
+  var formula =
+    "=AND(OR(ROW()=FocusCell_Row,COLUMN()=FocusCell_Col),FocusCell_Sheet=" +
+    quotedName +
+    ")";
 
-  var rowFormula =
-    "=AND(ROW()=" + rowRef + "," + sheetRef + "=" + quotedName + ")";
-  var colFormula =
-    "=AND(COLUMN()=" + colRef + "," + sheetRef + "=" + quotedName + ")";
-
-  var colRule = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(colFormula)
-    .setBackground("#E8F5EE")
-    .setRanges([range])
-    .build();
-
-  var rowRule = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(rowFormula)
+  var rule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(formula)
     .setBackground("#FFF3CD")
     .setRanges([range])
     .build();
 
   var rules = sheet.getConditionalFormatRules();
-  rules.push(colRule, rowRule);
+  rules.push(rule);
   sheet.setConditionalFormatRules(rules);
 }
 
@@ -198,8 +194,8 @@ function quoteFormulaString_(value) {
 }
 
 /**
- * Move visible (not filtered-out) values on the ACTIVE worksheet.
- * Reads once, writes each column once.
+ * Move visible values on the ACTIVE worksheet.
+ * Two reads, two writes. No per-row setValue. No hidden-by-user scan.
  */
 function moveVisibleRecords() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
@@ -264,18 +260,15 @@ function moveVisibleRecords() {
   var moved = 0;
   var skipped = 0;
   var filter = sheet.getFilter();
+  var row;
+  var i;
 
-  for (var i = 0; i < numRows; i++) {
+  for (i = 0; i < numRows; i++) {
     nextSource[i] = [sourceValues[i][0]];
     nextDest[i] = [destinationValues[i][0]];
-
-    var row = startRow + i;
+    row = startRow + i;
 
     if (filter && sheet.isRowHiddenByFilter(row)) {
-      continue;
-    }
-
-    if (sheet.isRowHiddenByUser(row)) {
       continue;
     }
 
@@ -293,8 +286,11 @@ function moveVisibleRecords() {
     moved++;
   }
 
-  destinationRange.setValues(nextDest);
-  sourceRange.setValues(nextSource);
+  if (moved > 0) {
+    destinationRange.setValues(nextDest);
+    sourceRange.setValues(nextSource);
+  }
+
   sheet.setActiveRange(destinationRange);
 
   ui.alert(

@@ -48,11 +48,11 @@ Hundreds of spreadsheet writes. Apps Script is fast in memory and slow per `getR
 
 ## What this script does instead
 
-**Focus Cell** writes the active row, column, and sheet name to a hidden `_FocusCell` helper tab (three cells). Conditional formatting on **the worksheet you are using** follows that cell. Previous highlights vanish because they were never painted onto the cells. Other tabs are left alone until you click them.
+**Focus Cell** installs highlight rules once on this sheet’s used area (named ranges, one formula, no `INDIRECT`). After that, each click only writes three helper cells. It does not rebuild formatting or scan the whole grid on every selection — that was the lag.
 
-**Move Visible Records** runs on `getActiveSheet()` only. It reads the source and destination once, walks the arrays, then writes each column once. After the move it selects the destination range so the UI does not keep the emptied source selected.
+**Move Visible Records** runs on `getActiveSheet()` only. It reads the source and destination once, walks the arrays, then writes each column once (and skips writes if nothing moved). After the move it selects the destination range so the UI does not keep the emptied source selected.
 
-Hidden rows are skipped only when a filter exists (`getFilter()`), so unfiltered sheets do not pay for `isRowHiddenByFilter` on every row.
+Hidden-by-filter rows are skipped only when a filter exists. The script does not call `isRowHiddenByUser` per row (that is one extra service call per row).
 
 ## Files
 
