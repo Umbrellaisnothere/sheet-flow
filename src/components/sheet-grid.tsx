@@ -39,11 +39,17 @@ export const SheetGrid = forwardRef<HTMLDivElement, SheetGridProps>(
 
     const handlePointerDown = useCallback(
       (event: React.PointerEvent, cell: CellRef) => {
-        event.preventDefault()
         dragging.current = true
         setIsDragging(true)
         onSelectCell(cell, event.shiftKey)
-        ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+        ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+      },
+      [onSelectCell]
+    )
+
+    const handleClick = useCallback(
+      (event: React.MouseEvent, cell: CellRef) => {
+        onSelectCell(cell, event.shiftKey)
       },
       [onSelectCell]
     )
@@ -118,6 +124,7 @@ export const SheetGrid = forwardRef<HTMLDivElement, SheetGridProps>(
                     onPointerDown={(event) =>
                       handlePointerDown(event, { row: 1, col })
                     }
+                    onClick={(event) => handleClick(event, { row: 1, col })}
                     onPointerEnter={() => {
                       if (dragging.current) onSelectCell({ row: 1, col }, true)
                     }}
@@ -168,6 +175,9 @@ export const SheetGrid = forwardRef<HTMLDivElement, SheetGridProps>(
                             row: row.rowNumber,
                             col,
                           })
+                        }
+                        onClick={(event) =>
+                          handleClick(event, { row: row.rowNumber, col })
                         }
                         onPointerEnter={() => {
                           if (dragging.current) {

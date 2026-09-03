@@ -1,39 +1,18 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Check, Copy, FileCode2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
-export function ScriptPanel() {
-  const [source, setSource] = useState("")
+export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
   const [copied, setCopied] = useState(false)
-  const [loadError, setLoadError] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    fetch("/sheets-tools.gs")
-      .then((response) => {
-        if (!response.ok) throw new Error("missing script")
-        return response.text()
-      })
-      .then((text) => {
-        if (!cancelled) setSource(text)
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const copy = async () => {
-    if (!source) return
+    if (!scriptSource) return
     try {
-      await navigator.clipboard.writeText(source)
+      await navigator.clipboard.writeText(scriptSource)
       setCopied(true)
       toast.success("Apps Script copied. Paste it into Extensions → Apps Script.")
       window.setTimeout(() => setCopied(false), 2000)
@@ -59,7 +38,7 @@ export function ScriptPanel() {
             Apps Script.
           </p>
         </div>
-        <Button onClick={copy} disabled={!source}>
+        <Button type="button" onClick={copy} disabled={!scriptSource}>
           {copied ? (
             <Check data-icon="inline-start" />
           ) : (
@@ -103,19 +82,9 @@ export function ScriptPanel() {
         </li>
       </ol>
 
-      {loadError ? (
-        <Alert variant="destructive" className="mx-4 mb-4">
-          <AlertTitle>Script file missing</AlertTitle>
-          <AlertDescription>
-            Could not load <code>sheets-tools.gs</code>. Copy it from{" "}
-            <code>apps-script/Code.gs</code> in this repo instead.
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <pre className="max-h-[420px] overflow-auto border-t border-[#d0d0d0] bg-[#1e1e1e] p-4 text-[12px] leading-5 text-[#d4d4d4]">
-          <code>{source || "Loading script…"}</code>
-        </pre>
-      )}
+      <pre className="max-h-[420px] overflow-auto border-t border-[#d0d0d0] bg-[#1e1e1e] p-4 text-[12px] leading-5 text-[#d4d4d4]">
+        <code>{scriptSource}</code>
+      </pre>
     </section>
   )
 }

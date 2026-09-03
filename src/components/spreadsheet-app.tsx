@@ -24,13 +24,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
@@ -56,7 +49,7 @@ import {
 import { ScriptPanel } from "@/components/script-panel"
 import { SheetGrid } from "@/components/sheet-grid"
 
-export function SpreadsheetApp() {
+export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
   const [rows, setRows] = useState(createSampleRows)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Ready")
   const displayRows = useMemo(
@@ -219,6 +212,7 @@ export function SpreadsheetApp() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
+              type="button"
               variant="secondary"
               className="bg-white text-[#217346] hover:bg-white/90"
               onClick={() => {
@@ -286,7 +280,7 @@ export function SpreadsheetApp() {
           </aside>
         </div>
 
-        <ScriptPanel />
+        <ScriptPanel scriptSource={scriptSource} />
       </div>
 
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
@@ -384,6 +378,7 @@ function Toolbar({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-[#d0d0d0] bg-white p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
       <Button
+        type="button"
         variant={focusOn ? "default" : "outline"}
         onClick={() => onFocusChange(!focusOn)}
         className={cn(focusOn && "bg-[#217346] hover:bg-[#1b5c38]")}
@@ -395,30 +390,30 @@ function Toolbar({
 
       <div className="flex items-center gap-2">
         <Filter className="size-4 text-muted-foreground" />
-        <Select
+        <label className="sr-only" htmlFor="status-filter">
+          Status filter
+        </label>
+        <select
+          id="status-filter"
           value={statusFilter}
-          onValueChange={(value) =>
-            onStatusFilter((value as StatusFilter) || "all")
+          onChange={(event) =>
+            onStatusFilter((event.target.value as StatusFilter) || "all")
           }
+          className="h-8 min-w-44 rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          <SelectTrigger className="min-w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="Ready">Ready (filtered)</SelectItem>
-            <SelectItem value="Hold">Hold</SelectItem>
-            <SelectItem value="Shipped">Shipped</SelectItem>
-          </SelectContent>
-        </Select>
+          <option value="all">All statuses</option>
+          <option value="Ready">Ready (filtered)</option>
+          <option value="Hold">Hold</option>
+          <option value="Shipped">Shipped</option>
+        </select>
       </div>
 
-      <Button onClick={onMove}>
+      <Button type="button" onClick={onMove}>
         <ArrowRightLeft data-icon="inline-start" />
         Move visible records
       </Button>
 
-      <Button variant="outline" onClick={onReset}>
+      <Button type="button" variant="outline" onClick={onReset}>
         <RotateCcw data-icon="inline-start" />
         Reset sheet
       </Button>
