@@ -1,17 +1,14 @@
 /**
  * Excel Tools for Google Sheets
  *
- * Paste this entire file over Code.gs (Extensions → Apps Script), Save,
- * reload, then Excel Tools → Enable Focus Cell on this sheet.
+ * Paste over Code.gs, Save, reload, then:
+ * Excel Tools → Enable Focus Cell on this sheet
  *
- * Why this is faster
- *   Conditional formatting on hundreds of rows cannot stay under ~3s.
- *   Clicks now recolor ONLY the active row + column, then put your
- *   original fills back when you leave. Other tabs are not touched
- *   unless you click them (Enable per sheet). No setBackground(null),
- *   so existing colors are stored and restored, not erased.
+ * Clicks write TWO hidden cells on this tab only. Highlight is a small
+ * conditional-format overlay (your fills are never overwritten). Other
+ * tabs are untouched until you Enable them.
  *
- * No top-level var/const — simple triggers cannot see them.
+ * The 8s paint version is gone. Do not keep any old script.
  */
 
 function onOpen() {
@@ -24,41 +21,20 @@ function onOpen() {
     .addToUi();
 }
 
-function focusColor_() {
-  return "#FFF3CD";
-}
-
-function focusStateKey_() {
-  return "FocusCell_state";
-}
-
-function oldHelperSheetName_() {
-  return "_FocusCell";
-}
-
-function focusRowRangeName_(sheet) {
-  return "FocusCell_R_" + sheet.getSheetId();
-}
-
-function focusColRangeName_(sheet) {
-  return "FocusCell_C_" + sheet.getSheetId();
-}
-
 function onSelectionChange(e) {
   try {
     if (!e || !e.range) {
       return;
     }
     var sheet = e.range.getSheet();
-    var prev = focusReadState_();
-    var sid = String(sheet.getSheetId());
-    if (!prev || !prev.on || prev.on[sid] !== 1) {
+    var helperCol = helperCol_(String(sheet.getSheetId()));
+    if (!helperCol) {
       return;
     }
-    applyFocus_(sheet, e.range.getRow(), e.range.getColumn(), prev);
-  } catch (err) {
-    // Simple triggers should not throw into the Sheets UI.
-  }
+    sheet
+      .getRange(1, helperCol, 1, 2)
+      .setValues([[e.range.getRow(), e.range.getColumn()]]);
+  } catch (err) {}
 }
 
 function enableFocusCell() {
@@ -66,27 +42,23 @@ function enableFocusCell() {
   var sheet = ss.getActiveSheet();
   var ui = SpreadsheetApp.getUi();
 
-  deleteOldHelperSheet_(ss);
-  removeFocusFormatting_(sheet);
-  cleanupOldHelpers_(ss, sheet);
+  undoPaintIfAny_(sheet);
+  stripOldFocusRules_(sheet);
+  deleteSheetNamed_(ss, "_FocusCell");
 
-  var prev = focusReadState_() || {};
-  if (!prev.on) {
-    prev.on = {};
-  }
-  prev.on[String(sheet.getSheetId())] = 1;
-  focusWriteState_(prev);
+  var helper = ensureHelpers_(ss, sheet);
+  var helperCol = helper.getColumn();
+  rememberHelperCol_(sheet, helperCol);
+  stripOldFocusRules_(sheet);
+  addFocusRule_(sheet, helper);
 
-  applyFocus_(
-    sheet,
-    sheet.getActiveCell().getRow(),
-    sheet.getActiveCell().getColumn(),
-    prev
-  );
+  helper.setValues([
+    [sheet.getActiveCell().getRow(), sheet.getActiveCell().getColumn()],
+  ]);
 
   ui.alert(
     "Focus Cell is on for \"" + sheet.getName() + "\"",
-    "Old highlight rules were removed. Clicks now tint only this tab’s active row and column, then restore your original fills.",
+    "Each click now writes two hidden cells. Highlight covers this tab’s data block (up to 80 rows × 12 columns) so it stays fast. Run Enable again if you add a large new block of rows.",
     ui.ButtonSet.OK
   );
 }
@@ -94,202 +66,103 @@ function enableFocusCell() {
 function disableFocusCell() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
-  var ui = SpreadsheetApp.getUi();
-
-  restoreFocusIfAny_(sheet);
-  var prev = focusReadState_() || {};
-  if (prev.on) {
-    delete prev.on[String(sheet.getSheetId())];
-  }
-  if (prev.sid === sheet.getSheetId()) {
-    prev.rowBg = null;
-    prev.colBg = null;
-  }
-  focusWriteState_(prev);
-  removeFocusFormatting_(sheet);
-
-  ui.alert("Focus Cell is off for \"" + sheet.getName() + "\".");
+  undoPaintIfAny_(sheet);
+  stripOldFocusRules_(sheet);
+  forgetHelperCol_(sheet);
+  SpreadsheetApp.getUi().alert(
+    "Focus Cell is off for \"" + sheet.getName() + "\"."
+  );
 }
 
-function applyFocus_(sheet, row, col, prev) {
-  if (!prev) {
-    prev = focusReadState_() || {};
-  }
-  var sid = sheet.getSheetId();
-
-  if (prev.sid === sid && prev.row === row && prev.col === col && prev.rowBg) {
-    return;
-  }
-
-  if (prev.rowBg && prev.colBg) {
-    restoreFocusState_(prev, sheet);
-  }
-
-  var lastRow = boundsLastRow_(sheet, prev, sid, row);
-  var lastCol = boundsLastCol_(sheet, prev, sid, col);
-
-  var rowRange = sheet.getRange(row, 1, 1, lastCol);
-  var colRange = sheet.getRange(1, col, lastRow, 1);
-  var rowBg = rowRange.getBackgrounds();
-  var colBg = colRange.getBackgrounds();
-
-  sheet
-    .getRangeList([rowRange.getA1Notation(), colRange.getA1Notation()])
-    .setBackground(focusColor_());
-
-  focusWriteState_({
-    on: prev.on || {},
-    sid: sid,
-    row: row,
-    col: col,
-    lastRow: lastRow,
-    lastCol: lastCol,
-    rowBg: rowBg,
-    colBg: colBg,
-  });
+function helperColKey_(sid) {
+  return "FC_c_" + sid;
 }
 
-function boundsLastRow_(sheet, prev, sid, row) {
-  var lastRow =
-    prev && prev.sid === sid && prev.lastRow ? prev.lastRow : sheet.getLastRow();
-  if (row > lastRow) {
-    lastRow = sheet.getLastRow();
-  }
-  lastRow = Math.max(lastRow, row, 1);
-  return Math.min(lastRow, 300);
-}
-
-function boundsLastCol_(sheet, prev, sid, col) {
-  var lastCol =
-    prev && prev.sid === sid && prev.lastCol ? prev.lastCol : sheet.getLastColumn();
-  if (col > lastCol) {
-    lastCol = sheet.getLastColumn();
-  }
-  lastCol = Math.max(lastCol, col, 1);
-  return Math.min(lastCol, 26);
-}
-
-function restoreFocusIfAny_(sheet) {
-  var prev = focusReadState_();
-  if (!prev || !prev.rowBg) {
-    return;
-  }
-  restoreFocusState_(prev, sheet);
-}
-
-function restoreFocusState_(prev, currentSheet) {
-  var sheet = currentSheet;
-  if (!sheet || sheet.getSheetId() !== prev.sid) {
-    sheet = sheetById_(prev.sid);
-  }
-  if (!sheet) {
-    return;
-  }
+function helperCol_(sid) {
+  var key = helperColKey_(sid);
+  var hit = null;
   try {
-    sheet.getRange(prev.row, 1, 1, prev.lastCol).setBackgrounds(prev.rowBg);
-    sheet.getRange(1, prev.col, prev.lastRow, 1).setBackgrounds(prev.colBg);
-  } catch (err) {
-    // Sheet size may have changed.
-  }
-}
-
-function sheetById_(sid) {
-  var sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
-  var i;
-  for (i = 0; i < sheets.length; i++) {
-    if (sheets[i].getSheetId() === sid) {
-      return sheets[i];
-    }
-  }
-  return null;
-}
-
-function focusCache_() {
-  try {
-    var doc = CacheService.getDocumentCache();
-    if (doc) {
-      return doc;
-    }
+    hit = CacheService.getScriptCache().get(key);
   } catch (err) {}
+  if (hit) {
+    return Number(hit);
+  }
   try {
-    return CacheService.getScriptCache();
+    hit = PropertiesService.getDocumentProperties().getProperty(key);
   } catch (err2) {
-    return null;
+    return 0;
   }
+  if (!hit) {
+    return 0;
+  }
+  try {
+    CacheService.getScriptCache().put(key, hit, 21600);
+  } catch (err3) {}
+  return Number(hit);
 }
 
-function focusReadState_() {
-  var raw = null;
+function rememberHelperCol_(sheet, col) {
+  var key = helperColKey_(String(sheet.getSheetId()));
+  var val = String(col);
   try {
-    var cache = focusCache_();
-    if (cache) {
-      raw = cache.get(focusStateKey_());
-    }
+    CacheService.getScriptCache().put(key, val, 21600);
   } catch (err) {}
-  if (!raw) {
-    try {
-      raw = PropertiesService.getDocumentProperties().getProperty(
-        focusStateKey_()
-      );
-    } catch (err2) {}
-  }
-  if (!raw) {
-    return null;
-  }
   try {
-    return JSON.parse(raw);
-  } catch (err3) {
-    return null;
-  }
-}
-
-function focusWriteState_(state) {
-  var raw = state ? JSON.stringify(state) : "";
-  var cached = false;
-  try {
-    var cache = focusCache_();
-    if (cache) {
-      if (raw) {
-        cache.put(focusStateKey_(), raw, 21600);
-      } else {
-        cache.remove(focusStateKey_());
-      }
-      cached = true;
-    }
-  } catch (err) {}
-  if (cached) {
-    return;
-  }
-  try {
-    var props = PropertiesService.getDocumentProperties();
-    if (raw) {
-      props.setProperty(focusStateKey_(), raw);
-    } else {
-      props.deleteProperty(focusStateKey_());
-    }
+    PropertiesService.getDocumentProperties().setProperty(key, val);
   } catch (err2) {}
 }
 
-function cleanupOldHelpers_(ss, sheet) {
-  var rowCell = ss.getRangeByName(focusRowRangeName_(sheet));
-  if (rowCell) {
-    var c = rowCell.getColumn();
-    try {
-      sheet.getRange(1, c, 1, 2).clearContent().clearNote();
-      sheet.showColumns(c, 2);
-    } catch (err) {}
-  }
-  removeNamedRangeIf_(ss, focusRowRangeName_(sheet));
-  removeNamedRangeIf_(ss, focusColRangeName_(sheet));
-  removeNamedRangeIf_(ss, "FocusCell_Row");
-  removeNamedRangeIf_(ss, "FocusCell_Col");
-  removeNamedRangeIf_(ss, "FocusCell_Sheet");
+function forgetHelperCol_(sheet) {
+  var key = helperColKey_(String(sheet.getSheetId()));
+  try {
+    CacheService.getScriptCache().remove(key);
+  } catch (err) {}
+  try {
+    PropertiesService.getDocumentProperties().deleteProperty(key);
+  } catch (err2) {}
 }
 
-function removeFocusFormatting_(sheet) {
+function ensureHelpers_(ss, sheet) {
+  var existing = ss.getRangeByName("FocusCell_R_" + sheet.getSheetId());
+  if (existing) {
+    return sheet.getRange(existing.getRow(), existing.getColumn(), 1, 2);
+  }
+  var col = sheet.getLastColumn() + 1;
+  if (col < 2) {
+    col = 2;
+  }
+  var helper = sheet.getRange(1, col, 1, 2);
+  helper.setValues([[1, 1]]);
+  try {
+    sheet.hideColumns(col, 2);
+  } catch (err) {}
+  ss.setNamedRange("FocusCell_R_" + sheet.getSheetId(), sheet.getRange(1, col));
+  ss.setNamedRange("FocusCell_C_" + sheet.getSheetId(), sheet.getRange(1, col + 1));
+  return helper;
+}
+
+function addFocusRule_(sheet, helper) {
+  var rowA1 = absA1_(helper.offset(0, 0, 1, 1));
+  var colA1 = absA1_(helper.offset(0, 1, 1, 1));
+  var helperCol = helper.getColumn();
+  var rows = Math.min(Math.max(sheet.getLastRow(), 1), 80, sheet.getMaxRows());
+  var cols = Math.min(Math.max(helperCol - 1, 1), 12, sheet.getMaxColumns());
+  var range = sheet.getRange(1, 1, rows, cols);
+  var formula = "=OR(ROW()=" + rowA1 + ",COLUMN()=" + colA1 + ")";
+  var rule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(formula)
+    .setBackground("#FFF3CD")
+    .setRanges([range])
+    .build();
+  var rules = sheet.getConditionalFormatRules();
+  rules.push(rule);
+  sheet.setConditionalFormatRules(rules);
+}
+
+function stripOldFocusRules_(sheet) {
   var ss = sheet.getParent();
-  var rowCell = ss.getRangeByName(focusRowRangeName_(sheet));
-  var colCell = ss.getRangeByName(focusColRangeName_(sheet));
+  var rowCell = ss.getRangeByName("FocusCell_R_" + sheet.getSheetId());
+  var colCell = ss.getRangeByName("FocusCell_C_" + sheet.getSheetId());
   var needles = ["_FocusCell!", "FocusCell_Row", "FocusCell_Sheet"];
   if (rowCell) {
     needles.push(absA1_(rowCell));
@@ -297,16 +170,14 @@ function removeFocusFormatting_(sheet) {
   if (colCell) {
     needles.push(absA1_(colCell));
   }
-
   var rules = sheet.getConditionalFormatRules();
   var kept = [];
   var i;
-  var j;
-  var drop;
   var formula;
+  var drop;
+  var j;
   var condition;
   var values;
-
   for (i = 0; i < rules.length; i++) {
     condition = rules[i].getBooleanCondition();
     if (!condition) {
@@ -315,25 +186,49 @@ function removeFocusFormatting_(sheet) {
     }
     values = condition.getCriteriaValues();
     formula = values && values.length ? String(values[0]) : "";
-    drop = false;
-    if (
+    drop =
       formula.indexOf("OR(ROW()=$") !== -1 &&
-      formula.indexOf("COLUMN()=$") !== -1
-    ) {
-      drop = true;
-    }
+      formula.indexOf("COLUMN()=$") !== -1;
     for (j = 0; j < needles.length; j++) {
       if (needles[j] && formula.indexOf(needles[j]) !== -1) {
         drop = true;
-        break;
       }
     }
     if (!drop) {
       kept.push(rules[i]);
     }
   }
-
   sheet.setConditionalFormatRules(kept);
+}
+
+function undoPaintIfAny_(sheet) {
+  var raw = null;
+  try {
+    raw = CacheService.getScriptCache().get("FocusCell_state");
+  } catch (err) {}
+  if (!raw) {
+    try {
+      raw = PropertiesService.getDocumentProperties().getProperty(
+        "FocusCell_state"
+      );
+    } catch (err2) {}
+  }
+  if (!raw) {
+    return;
+  }
+  try {
+    var prev = JSON.parse(raw);
+    if (prev && prev.rowBg && prev.colBg && prev.sid === sheet.getSheetId()) {
+      sheet.getRange(prev.row, 1, 1, prev.lastCol).setBackgrounds(prev.rowBg);
+      sheet.getRange(1, prev.col, prev.lastRow, 1).setBackgrounds(prev.colBg);
+    }
+  } catch (err3) {}
+  try {
+    CacheService.getScriptCache().remove("FocusCell_state");
+  } catch (err4) {}
+  try {
+    PropertiesService.getDocumentProperties().deleteProperty("FocusCell_state");
+  } catch (err5) {}
 }
 
 function absA1_(range) {
@@ -345,23 +240,12 @@ function absA1_(range) {
   return "$" + a1.substring(0, i) + "$" + a1.substring(i);
 }
 
-function deleteOldHelperSheet_(ss) {
-  var focus = ss.getSheetByName(oldHelperSheetName_());
-  if (!focus) {
+function deleteSheetNamed_(ss, name) {
+  var sh = ss.getSheetByName(name);
+  if (!sh || ss.getSheets().length < 2) {
     return;
   }
-  if (ss.getSheets().length < 2) {
-    return;
-  }
-  ss.deleteSheet(focus);
-}
-
-function removeNamedRangeIf_(ss, name) {
-  try {
-    if (ss.getRangeByName(name)) {
-      ss.removeNamedRange(name);
-    }
-  } catch (err) {}
+  ss.deleteSheet(sh);
 }
 
 function moveVisibleRecords() {
@@ -373,7 +257,6 @@ function moveVisibleRecords() {
     ui.alert("Select the source records first.");
     return;
   }
-
   if (sourceRange.getNumColumns() !== 1) {
     ui.alert("Please select records from only one column.");
     return;
@@ -382,13 +265,11 @@ function moveVisibleRecords() {
   var sourceColumn = sourceRange.getColumn();
   var startRow = sourceRange.getRow();
   var numRows = sourceRange.getNumRows();
-
   var response = ui.prompt(
     "Move Visible Records",
     "Enter the destination column on this sheet (e.g. B, C, D):",
     ui.ButtonSet.OK_CANCEL
   );
-
   if (response.getSelectedButton() !== ui.Button.OK) {
     return;
   }
@@ -397,12 +278,10 @@ function moveVisibleRecords() {
     .trim()
     .toUpperCase();
   var destinationColumn = columnLetterToNumber(destinationLetter);
-
   if (!destinationColumn) {
     ui.alert("Invalid column. Please enter a column such as B, C, or D.");
     return;
   }
-
   if (destinationColumn === sourceColumn) {
     ui.alert("Destination must be a different column than the source.");
     return;
@@ -416,33 +295,28 @@ function moveVisibleRecords() {
     1
   );
   var destinationValues = destinationRange.getValues();
-
   var nextSource = [];
   var nextDest = [];
   var moved = 0;
   var skipped = 0;
   var filter = sheet.getFilter();
-  var row;
   var i;
+  var row;
 
   for (i = 0; i < numRows; i++) {
     nextSource[i] = [sourceValues[i][0]];
     nextDest[i] = [destinationValues[i][0]];
     row = startRow + i;
-
     if (filter && sheet.isRowHiddenByFilter(row)) {
       continue;
     }
-
     if (isBlank_(sourceValues[i][0])) {
       continue;
     }
-
     if (!isBlank_(destinationValues[i][0])) {
       skipped++;
       continue;
     }
-
     nextDest[i][0] = sourceValues[i][0];
     nextSource[i][0] = "";
     moved++;
@@ -452,17 +326,13 @@ function moveVisibleRecords() {
     destinationRange.setValues(nextDest);
     sourceRange.setValues(nextSource);
   }
-
   sheet.setActiveRange(destinationRange);
-
   ui.alert(
     "Finished on \"" +
       sheet.getName() +
-      "\"!\n\n" +
-      "Moved: " +
+      "\"!\n\nMoved: " +
       moved +
-      "\n" +
-      "Skipped because destination already had text: " +
+      "\nSkipped because destination already had text: " +
       skipped
   );
 }
@@ -481,9 +351,9 @@ function columnLetterToNumber(letter) {
   if (!letter || !/^[A-Z]+$/.test(letter)) {
     return 0;
   }
-
   var column = 0;
-  for (var i = 0; i < letter.length; i++) {
+  var i;
+  for (i = 0; i < letter.length; i++) {
     column = column * 26 + letter.charCodeAt(i) - 64;
   }
   return column;
