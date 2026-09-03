@@ -14,8 +14,7 @@ test("Apps Script has no top-level var/const/let (simple-trigger safe)", () => {
     }
   }
   assert.equal(/var\s+FOCUS_SHEET_NAME/.test(source), false)
-  assert.match(source, /function focusRowRangeName_\(/)
-  assert.match(source, /getActiveSheet\(\)/)
+  assert.match(source, /function applyFocus_\(/)
+  assert.match(source, /getRangeList/)
   assert.doesNotMatch(source, /INDIRECT\(/)
-  assert.match(source, /cannot reference a different sheet/)
 })

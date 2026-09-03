@@ -1,13 +1,15 @@
 /**
  * Excel Tools for Google Sheets
  *
- * Paste this entire file into the Apps Script project ATTACHED to your
- * spreadsheet (Extensions → Apps Script). Replace Code.gs in full.
+ * Paste this entire file over Code.gs (Extensions → Apps Script), Save,
+ * reload, then Excel Tools → Enable Focus Cell on this sheet.
  *
- * Sheets conditional formatting cannot reference another tab (that was
- * "Conditional format rule cannot reference a different sheet"). Helper
- * cells live on THIS worksheet, two hidden columns past the data. Clicks
- * only write those two cells. Enable installs the rule once.
+ * Why this is faster
+ *   Conditional formatting on hundreds of rows cannot stay under ~3s.
+ *   Clicks now recolor ONLY the active row + column, then put your
+ *   original fills back when you leave. Other tabs are not touched
+ *   unless you click them (Enable per sheet). No setBackground(null),
+ *   so existing colors are stored and restored, not erased.
  *
  * No top-level var/const — simple triggers cannot see them.
  */
@@ -22,6 +24,18 @@ function onOpen() {
     .addToUi();
 }
 
+function focusColor_() {
+  return "#FFF3CD";
+}
+
+function focusStateKey_() {
+  return "FocusCell_state";
+}
+
+function oldHelperSheetName_() {
+  return "_FocusCell";
+}
+
 function focusRowRangeName_(sheet) {
   return "FocusCell_R_" + sheet.getSheetId();
 }
@@ -30,34 +44,18 @@ function focusColRangeName_(sheet) {
   return "FocusCell_C_" + sheet.getSheetId();
 }
 
-function oldHelperSheetName_() {
-  return "_FocusCell";
-}
-
-/**
- * Click handler. Looks up this sheet’s helper cells and writes row + col.
- * No formatting, no other tabs.
- */
 function onSelectionChange(e) {
   try {
     if (!e || !e.range) {
       return;
     }
-
     var sheet = e.range.getSheet();
-    var ss = e.source;
-    if (!ss) {
+    var prev = focusReadState_();
+    var sid = String(sheet.getSheetId());
+    if (!prev || !prev.on || prev.on[sid] !== 1) {
       return;
     }
-
-    var rowCell = ss.getRangeByName(focusRowRangeName_(sheet));
-    if (!rowCell) {
-      return;
-    }
-
-    sheet
-      .getRange(rowCell.getRow(), rowCell.getColumn(), 1, 2)
-      .setValues([[e.range.getRow(), e.range.getColumn()]]);
+    applyFocus_(sheet, e.range.getRow(), e.range.getColumn(), prev);
   } catch (err) {
     // Simple triggers should not throw into the Sheets UI.
   }
@@ -68,26 +66,27 @@ function enableFocusCell() {
   var sheet = ss.getActiveSheet();
   var ui = SpreadsheetApp.getUi();
 
-  if (sheet.getName() === oldHelperSheetName_()) {
-    ui.alert("Switch to your data worksheet, then enable Focus Cell again.");
-    return;
-  }
-
   deleteOldHelperSheet_(ss);
-  removeNamedRangeIf_(ss, "FocusCell_Row");
-  removeNamedRangeIf_(ss, "FocusCell_Col");
-  removeNamedRangeIf_(ss, "FocusCell_Sheet");
+  removeFocusFormatting_(sheet);
+  cleanupOldHelpers_(ss, sheet);
 
-  var helper = ensureHelperOnSheet_(ss, sheet);
-  installFocusFormatting_(sheet, helper);
-  helper.setValues([
-    [sheet.getActiveCell().getRow(), sheet.getActiveCell().getColumn()],
-  ]);
+  var prev = focusReadState_() || {};
+  if (!prev.on) {
+    prev.on = {};
+  }
+  prev.on[String(sheet.getSheetId())] = 1;
+  focusWriteState_(prev);
+
+  applyFocus_(
+    sheet,
+    sheet.getActiveCell().getRow(),
+    sheet.getActiveCell().getColumn(),
+    prev
+  );
 
   ui.alert(
     "Focus Cell is on for \"" + sheet.getName() + "\"",
-    "The highlight rule only reads two hidden cells on this same sheet, which Sheets allows.\n\n" +
-      "If you unhide columns, leave the last two (focus helpers) hidden.",
+    "Old highlight rules were removed. Clicks now tint only this tab’s active row and column, then restore your original fills.",
     ui.ButtonSet.OK
   );
 }
@@ -97,72 +96,194 @@ function disableFocusCell() {
   var sheet = ss.getActiveSheet();
   var ui = SpreadsheetApp.getUi();
 
-  if (sheet.getName() === oldHelperSheetName_()) {
-    ui.alert("Switch to your data worksheet, then disable Focus Cell again.");
-    return;
+  restoreFocusIfAny_(sheet);
+  var prev = focusReadState_() || {};
+  if (prev.on) {
+    delete prev.on[String(sheet.getSheetId())];
   }
-
+  if (prev.sid === sheet.getSheetId()) {
+    prev.rowBg = null;
+    prev.colBg = null;
+  }
+  focusWriteState_(prev);
   removeFocusFormatting_(sheet);
+
   ui.alert("Focus Cell is off for \"" + sheet.getName() + "\".");
 }
 
-function ensureHelperOnSheet_(ss, sheet) {
-  var existing = ss.getRangeByName(focusRowRangeName_(sheet));
-  var colExisting = ss.getRangeByName(focusColRangeName_(sheet));
-  if (existing && colExisting) {
-    return sheet.getRange(existing.getRow(), existing.getColumn(), 1, 2);
+function applyFocus_(sheet, row, col, prev) {
+  if (!prev) {
+    prev = focusReadState_() || {};
+  }
+  var sid = sheet.getSheetId();
+
+  if (prev.sid === sid && prev.row === row && prev.col === col && prev.rowBg) {
+    return;
   }
 
-  var col = sheet.getLastColumn() + 1;
-  if (col < 2) {
-    col = 2;
+  if (prev.rowBg && prev.colBg) {
+    restoreFocusState_(prev, sheet);
   }
 
-  var helper = sheet.getRange(1, col, 1, 2);
-  helper.setValues([[1, 1]]);
-  sheet.getRange(1, col).setNote("Focus Cell row helper. Keep this column hidden.");
-  sheet.getRange(1, col + 1).setNote("Focus Cell column helper. Keep this column hidden.");
+  var lastRow = boundsLastRow_(sheet, prev, sid, row);
+  var lastCol = boundsLastCol_(sheet, prev, sid, col);
+
+  var rowRange = sheet.getRange(row, 1, 1, lastCol);
+  var colRange = sheet.getRange(1, col, lastRow, 1);
+  var rowBg = rowRange.getBackgrounds();
+  var colBg = colRange.getBackgrounds();
+
+  sheet
+    .getRangeList([rowRange.getA1Notation(), colRange.getA1Notation()])
+    .setBackground(focusColor_());
+
+  focusWriteState_({
+    on: prev.on || {},
+    sid: sid,
+    row: row,
+    col: col,
+    lastRow: lastRow,
+    lastCol: lastCol,
+    rowBg: rowBg,
+    colBg: colBg,
+  });
+}
+
+function boundsLastRow_(sheet, prev, sid, row) {
+  var lastRow =
+    prev && prev.sid === sid && prev.lastRow ? prev.lastRow : sheet.getLastRow();
+  if (row > lastRow) {
+    lastRow = sheet.getLastRow();
+  }
+  lastRow = Math.max(lastRow, row, 1);
+  return Math.min(lastRow, 300);
+}
+
+function boundsLastCol_(sheet, prev, sid, col) {
+  var lastCol =
+    prev && prev.sid === sid && prev.lastCol ? prev.lastCol : sheet.getLastColumn();
+  if (col > lastCol) {
+    lastCol = sheet.getLastColumn();
+  }
+  lastCol = Math.max(lastCol, col, 1);
+  return Math.min(lastCol, 26);
+}
+
+function restoreFocusIfAny_(sheet) {
+  var prev = focusReadState_();
+  if (!prev || !prev.rowBg) {
+    return;
+  }
+  restoreFocusState_(prev, sheet);
+}
+
+function restoreFocusState_(prev, currentSheet) {
+  var sheet = currentSheet;
+  if (!sheet || sheet.getSheetId() !== prev.sid) {
+    sheet = sheetById_(prev.sid);
+  }
+  if (!sheet) {
+    return;
+  }
   try {
-    sheet.hideColumns(col, 2);
+    sheet.getRange(prev.row, 1, 1, prev.lastCol).setBackgrounds(prev.rowBg);
+    sheet.getRange(1, prev.col, prev.lastRow, 1).setBackgrounds(prev.colBg);
   } catch (err) {
-    // Columns may already be hidden.
+    // Sheet size may have changed.
   }
-
-  ss.setNamedRange(focusRowRangeName_(sheet), sheet.getRange(1, col));
-  ss.setNamedRange(focusColRangeName_(sheet), sheet.getRange(1, col + 1));
-
-  return helper;
 }
 
-function focusDataRange_(sheet, helper) {
-  var lastRow = sheet.getLastRow();
-  var lastCol = sheet.getLastColumn();
-  var helperCol = helper.getColumn();
-  var rows = Math.min(Math.max(lastRow + 20, 30), 800, sheet.getMaxRows());
-  var cols = Math.min(Math.max(helperCol - 1, lastCol, 1), 26, sheet.getMaxColumns());
-  if (cols < 1) {
-    cols = 1;
+function sheetById_(sid) {
+  var sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  var i;
+  for (i = 0; i < sheets.length; i++) {
+    if (sheets[i].getSheetId() === sid) {
+      return sheets[i];
+    }
   }
-  return sheet.getRange(1, 1, rows, cols);
+  return null;
 }
 
-function installFocusFormatting_(sheet, helper) {
-  removeFocusFormatting_(sheet);
+function focusCache_() {
+  try {
+    var doc = CacheService.getDocumentCache();
+    if (doc) {
+      return doc;
+    }
+  } catch (err) {}
+  try {
+    return CacheService.getScriptCache();
+  } catch (err2) {
+    return null;
+  }
+}
 
-  var rowA1 = absA1_(helper.offset(0, 0, 1, 1));
-  var colA1 = absA1_(helper.offset(0, 1, 1, 1));
-  var formula = "=OR(ROW()=" + rowA1 + ",COLUMN()=" + colA1 + ")";
-  var range = focusDataRange_(sheet, helper);
+function focusReadState_() {
+  var raw = null;
+  try {
+    var cache = focusCache_();
+    if (cache) {
+      raw = cache.get(focusStateKey_());
+    }
+  } catch (err) {}
+  if (!raw) {
+    try {
+      raw = PropertiesService.getDocumentProperties().getProperty(
+        focusStateKey_()
+      );
+    } catch (err2) {}
+  }
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err3) {
+    return null;
+  }
+}
 
-  var rule = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(formula)
-    .setBackground("#FFF3CD")
-    .setRanges([range])
-    .build();
+function focusWriteState_(state) {
+  var raw = state ? JSON.stringify(state) : "";
+  var cached = false;
+  try {
+    var cache = focusCache_();
+    if (cache) {
+      if (raw) {
+        cache.put(focusStateKey_(), raw, 21600);
+      } else {
+        cache.remove(focusStateKey_());
+      }
+      cached = true;
+    }
+  } catch (err) {}
+  if (cached) {
+    return;
+  }
+  try {
+    var props = PropertiesService.getDocumentProperties();
+    if (raw) {
+      props.setProperty(focusStateKey_(), raw);
+    } else {
+      props.deleteProperty(focusStateKey_());
+    }
+  } catch (err2) {}
+}
 
-  var rules = sheet.getConditionalFormatRules();
-  rules.push(rule);
-  sheet.setConditionalFormatRules(rules);
+function cleanupOldHelpers_(ss, sheet) {
+  var rowCell = ss.getRangeByName(focusRowRangeName_(sheet));
+  if (rowCell) {
+    var c = rowCell.getColumn();
+    try {
+      sheet.getRange(1, c, 1, 2).clearContent().clearNote();
+      sheet.showColumns(c, 2);
+    } catch (err) {}
+  }
+  removeNamedRangeIf_(ss, focusRowRangeName_(sheet));
+  removeNamedRangeIf_(ss, focusColRangeName_(sheet));
+  removeNamedRangeIf_(ss, "FocusCell_Row");
+  removeNamedRangeIf_(ss, "FocusCell_Col");
+  removeNamedRangeIf_(ss, "FocusCell_Sheet");
 }
 
 function removeFocusFormatting_(sheet) {
@@ -234,15 +355,9 @@ function removeNamedRangeIf_(ss, name) {
     if (ss.getRangeByName(name)) {
       ss.removeNamedRange(name);
     }
-  } catch (err) {
-    // Already gone.
-  }
+  } catch (err) {}
 }
 
-/**
- * Move visible values on the ACTIVE worksheet.
- * Two reads, two writes. No per-row setValue.
- */
 function moveVisibleRecords() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var sourceRange = sheet.getActiveRange();
@@ -284,14 +399,6 @@ function moveVisibleRecords() {
 
   if (destinationColumn === sourceColumn) {
     ui.alert("Destination must be a different column than the source.");
-    return;
-  }
-
-  var helper = SpreadsheetApp.getActiveSpreadsheet().getRangeByName(
-    focusRowRangeName_(sheet)
-  );
-  if (helper && destinationColumn === helper.getColumn()) {
-    ui.alert("That column is the hidden Focus Cell helper. Pick another column.");
     return;
   }
 

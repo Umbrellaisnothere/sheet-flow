@@ -48,7 +48,7 @@ Hundreds of spreadsheet writes. Apps Script is fast in memory and slow per `getR
 
 ## What this script does instead
 
-**Focus Cell** cannot use a hidden helper tab. Google Sheets rejects conditional formatting that points at another sheet (`Exception: Conditional format rule cannot reference a different sheet`). Enable stores the active row and column in two hidden cells on **this** worksheet and installs one rule that reads `$H$1` / `$I$1` style references on that same tab. Each click only writes those two cells.
+**Focus Cell** tints only the active row and column on the current tab, then restores the fills that were there. That stays near the Apps Script trigger floor (about 1–3 seconds). Sheet-wide conditional formatting cannot do that — it was the 4–6 second delay. Other tabs are left alone until you Enable them. Original colors are saved and put back; they are not cleared.
 
 **Move Visible Records** runs on `getActiveSheet()` only. It reads the source and destination once, walks the arrays, then writes each column once (and skips writes if nothing moved). After the move it selects the destination range so the UI does not keep the emptied source selected.
 
