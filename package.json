@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --port 43173",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test src/lib/sheet-engine.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/sheet-engine.test.ts apps-script/no-globals.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

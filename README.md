@@ -15,13 +15,15 @@ Open the app, click around the pack list, then **Move visible records** from col
 
 ## Install in Google Sheets
 
-1. Open the spreadsheet → **Extensions → Apps Script**.
-2. Replace the default `Code.gs` with [`apps-script/Code.gs`](apps-script/Code.gs) (or copy it from the playground).
-3. Save, reload the sheet, then **Excel Tools → Enable Focus Cell**. Authorize when prompted.
-4. Click cells. The current row and column highlight; the previous highlight disappears.
+The script must be **bound to the spreadsheet you have open** (Extensions → Apps Script from that file). A standalone Apps Script project will not see your worksheet.
+
+1. In the worksheet you are using, open **Extensions → Apps Script**.
+2. Replace **the entire** `Code.gs` with [`apps-script/Code.gs`](apps-script/Code.gs). Do not leave leftover `var FOCUS_SHEET_NAME = ...` at the top — simple triggers like `onSelectionChange` cannot see those globals and throw `ReferenceError: FOCUS_SHEET_NAME is not defined`.
+3. Save, reload the spreadsheet, stay on your data tab, then **Excel Tools → Enable Focus Cell on this sheet**. Authorize when prompted.
+4. Click cells on that same tab. The current row and column highlight; the previous highlight disappears.
 5. Filter a column, select **one** source column, then **Excel Tools → Move Visible Records…**.
 
-`onSelectionChange` only runs in a **container-bound** script (Extensions → Apps Script on that spreadsheet). It will not run from a standalone script project.
+`onSelectionChange` only runs in a container-bound script. It will not run from a standalone script project.
 
 ## What was wrong
 
@@ -32,6 +34,8 @@ sheet.getRange(row, 1, 1, lastCol).setBackground("#fff2cc");
 ```
 
 That never restores the previous row, so every cell you visit stays “selected.” It also overwrites real fill colors.
+
+Apps Script simple triggers also cannot reliably read top-level `var` / `const` values. A menu or `onSelectionChange` that uses `FOCUS_SHEET_NAME` then throws `ReferenceError`. This script keeps those strings inside functions, which triggers can see.
 
 Typical mover:
 
@@ -44,9 +48,9 @@ Hundreds of spreadsheet writes. Apps Script is fast in memory and slow per `getR
 
 ## What this script does instead
 
-**Focus Cell** writes the active row, column, and sheet name to a hidden `_FocusCell` sheet (three cells). Conditional formatting on the data sheet follows that cell. Previous highlights vanish because they were never painted onto the cells. Your existing colors stay intact.
+**Focus Cell** writes the active row, column, and sheet name to a hidden `_FocusCell` helper tab (three cells). Conditional formatting on **the worksheet you are using** follows that cell. Previous highlights vanish because they were never painted onto the cells. Other tabs are left alone until you click them.
 
-**Move Visible Records** reads the source and destination once, walks the arrays, then writes each column once. After the move it selects the destination range so the UI does not keep the emptied source selected.
+**Move Visible Records** runs on `getActiveSheet()` only. It reads the source and destination once, walks the arrays, then writes each column once. After the move it selects the destination range so the UI does not keep the emptied source selected.
 
 Hidden rows are skipped only when a filter exists (`getFilter()`), so unfiltered sheets do not pay for `isRowHiddenByFilter` on every row.
 

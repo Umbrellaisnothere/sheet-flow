@@ -75,8 +75,9 @@ export function ScriptPanel() {
             Step 1
           </p>
           <p className="mt-1">
-            Open your spreadsheet → <strong>Extensions → Apps Script</strong>.
-            Replace the default file with the copied script and Save.
+            Open the spreadsheet you are working in → <strong>Extensions → Apps Script</strong>.
+            Delete everything in <code>Code.gs</code>, paste this file in full, and Save.
+            Do not keep the old <code>FOCUS_SHEET_NAME</code> lines — simple triggers cannot see them.
           </p>
         </li>
         <li className="rounded-lg border bg-muted/30 p-3">
@@ -84,9 +85,10 @@ export function ScriptPanel() {
             Step 2
           </p>
           <p className="mt-1">
-            Reload the sheet. Open <strong>Excel Tools → Enable Focus Cell</strong>{" "}
-            and authorize. Click around: the highlight follows, the old one
-            clears.
+            Reload that worksheet. Open{" "}
+            <strong>Excel Tools → Enable Focus Cell on this sheet</strong> and
+            authorize. Click cells on <em>this</em> tab only: the highlight
+            follows, the old one clears.
           </p>
         </li>
         <li className="rounded-lg border bg-muted/30 p-3">
