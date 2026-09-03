@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Focus Cell for Google Sheets
 // @namespace    https://github.com/sheets-focus-cell
-// @version      1.0.0
+// @version      1.1.0
 // @description  Excel-style active row and column highlight in Google Sheets, drawn in the browser so there is no Apps Script delay.
 // @author       sheets-focus-cell
 // @match        https://docs.google.com/spreadsheets/d/*
@@ -22,6 +22,9 @@
  * click. It reads where Sheets has already put the selection outline and lays
  * two translucent bands over the grid. It never touches the document, so it
  * cannot overwrite a fill, cannot trigger a recalculation, and costs no quota.
+ *
+ * The idea of reading the selection outline out of the DOM comes from
+ * matsu7089's Sheets Row Highlighter (MIT).
  */
 
 (function () {
@@ -45,14 +48,21 @@
   var bands = [];
   var enabled = true;
   var queued = false;
+  var signature = "";
+  var observer = null;
+  var observed = null;
 
-  function gridRect() {
-    var grid = document.getElementById(GRID_ID);
-    return grid ? grid.getBoundingClientRect() : null;
+  function grid() {
+    return document.getElementById(GRID_ID);
   }
 
-  function visibleSelections() {
-    var all = document.getElementsByClassName(SELECTION_CLASS);
+  /**
+   * Both hooks are queried inside the grid, never document-wide. "selection"
+   * is a plausible class name for unrelated parts of a page this large, and a
+   * stray match would draw a band over nothing.
+   */
+  function visible(node, className) {
+    var all = node.getElementsByClassName(className);
     var out = [];
     for (var i = 0; i < all.length; i++) {
       if (all[i].style.display !== "none") {
@@ -62,59 +72,95 @@
     return out;
   }
 
+  function toRect(box, base) {
+    return {
+      x: box.left - base.left,
+      y: box.top - base.top,
+      width: box.width,
+      height: box.height,
+    };
+  }
+
   /**
-   * A whole-row or whole-column selection is drawn as a band wider or taller
-   * than the grid, plus a cell-sized rect for the current cell. Highlighting
-   * both would double-darken, so drop the cell that sits inside a band.
+   * Sheets draws a whole-row or whole-column pick as a rect that overflows the
+   * grid, and already tints it edge to edge itself. Those picks and any cell
+   * sitting inside one are dropped, so we never double-darken what Sheets has
+   * already coloured. A whole-row pick therefore adds no band of its own,
+   * which is intended: the row is already highlighted.
    */
-  function selectionRects(elements, grid) {
+  function selectionRects(elements, base) {
     var rects = elements.map(function (element) {
-      var box = element.getBoundingClientRect();
-      return {
-        x: box.x - grid.x,
-        y: box.y - grid.y,
-        width: box.width,
-        height: box.height,
-      };
+      return toRect(element.getBoundingClientRect(), base);
     });
 
-    var bandRects = rects.filter(function (rect) {
-      return grid.width < rect.width || grid.height < rect.height;
+    var spans = rects.filter(function (rect) {
+      return base.width < rect.width || base.height < rect.height;
     });
 
     return rects.filter(function (rect) {
-      return !bandRects.some(function (band) {
-        return band.height < band.width
-          ? rect.y === band.y && rect.height === band.height
-          : rect.x === band.x && rect.width === band.width;
+      return !spans.some(function (span) {
+        return span.height < span.width
+          ? rect.y === span.y && rect.height === span.height
+          : rect.x === span.x && rect.width === span.width;
       });
     });
   }
 
-  /** The active cell outline is four elements: top, right, bottom, left. */
-  function activeCellRect(grid) {
-    var borders = document.getElementsByClassName(ACTIVE_BORDER_CLASS);
-    if (borders.length !== 4) {
-      return [];
+  /**
+   * The outline of one cell is four elements: top, right, bottom, left. Their
+   * union is the cell. Taking them in fours rather than insisting on exactly
+   * four means a frozen pane adding a second set degrades into two rects that
+   * the merge step folds together, instead of switching the highlight off.
+   */
+  function activeCellRects(elements, base) {
+    var rects = [];
+    var i;
+    var j;
+    var box;
+    var left;
+    var top;
+    var right;
+    var bottom;
+
+    for (i = 0; i + 4 <= elements.length; i += 4) {
+      left = Infinity;
+      top = Infinity;
+      right = -Infinity;
+      bottom = -Infinity;
+      for (j = i; j < i + 4; j++) {
+        box = elements[j].getBoundingClientRect();
+        if (!box.width && !box.height) {
+          continue;
+        }
+        left = Math.min(left, box.left);
+        top = Math.min(top, box.top);
+        right = Math.max(right, box.right);
+        bottom = Math.max(bottom, box.bottom);
+      }
+      if (left < right && top < bottom) {
+        rects.push(
+          toRect(
+            {
+              left: left,
+              top: top,
+              width: right - left,
+              height: bottom - top,
+            },
+            base
+          )
+        );
+      }
     }
-    var top = borders[0].getBoundingClientRect();
-    var left = borders[3].getBoundingClientRect();
-    return [
-      {
-        x: top.x - grid.x,
-        y: top.y - grid.y,
-        width: top.width,
-        height: left.height,
-      },
-    ];
+
+    return rects;
   }
 
-  function targetRects(grid) {
-    var selections = visibleSelections();
+  function targetRects(node, base) {
+    var selections = visible(node, SELECTION_CLASS);
     if (selections.length) {
-      return selectionRects(selections, grid);
+      return selectionRects(selections, base);
     }
-    return activeCellRect(grid);
+    return activeCellRects(visible(node, ACTIVE_BORDER_CLASS), base);
   }
 
   /** Collapse touching or overlapping rects so opacity stays even. */
@@ -127,7 +173,7 @@
       })
       .reduce(function (acc, rect) {
         var prev = acc[acc.length - 1];
-        if (!prev || prev[axis] + prev[size] < rect[axis]) {
+        if (!prev || prev.start + prev.size < rect[axis]) {
           acc.push({ start: rect[axis], size: rect[size] });
           return acc;
         }
@@ -136,30 +182,31 @@
       }, []);
   }
 
-  function bandStyles(grid) {
-    var rects = targetRects(grid);
+  function bandStyles(node, base) {
+    var rects = targetRects(node, base);
     var styles = [];
     var i;
+    var run;
 
     if (CONFIG.row) {
-      var rows = merge(rects, "y");
-      for (i = 0; i < rows.length; i++) {
+      run = merge(rects, "y");
+      for (i = 0; i < run.length; i++) {
         styles.push({
           left: "0px",
-          top: rows[i].start + "px",
+          top: run[i].start + "px",
           width: "100%",
-          height: rows[i].size + "px",
+          height: run[i].size + "px",
         });
       }
     }
 
     if (CONFIG.column) {
-      var cols = merge(rects, "x");
-      for (i = 0; i < cols.length; i++) {
+      run = merge(rects, "x");
+      for (i = 0; i < run.length; i++) {
         styles.push({
-          left: cols[i].start + "px",
+          left: run[i].start + "px",
           top: "0px",
-          width: cols[i].size + "px",
+          width: run[i].size + "px",
           height: "100%",
         });
       }
@@ -168,12 +215,36 @@
     return styles;
   }
 
-  function render() {
-    var grid = enabled ? gridRect() : null;
-    if (!grid) {
-      overlay.style.display = "none";
+  function hide() {
+    if (signature === "off") {
       return;
     }
+    signature = "off";
+    overlay.style.display = "none";
+  }
+
+  function render() {
+    // Sheets owns document.body. Checking before the no-change shortcut below
+    // matters: otherwise a detached overlay is never put back.
+    if (!overlay.parentNode) {
+      document.body.appendChild(overlay);
+      signature = "";
+    }
+
+    var node = enabled ? grid() : null;
+    var base = node ? node.getBoundingClientRect() : null;
+    // A grid with no size means the spreadsheet has not painted yet.
+    if (!base || !base.width || !base.height) {
+      hide();
+      return;
+    }
+
+    var styles = bandStyles(node, base);
+    var next = JSON.stringify([base.left, base.top, base.width, base.height, styles]);
+    if (next === signature) {
+      return;
+    }
+    signature = next;
 
     Object.assign(overlay.style, {
       display: "block",
@@ -181,13 +252,12 @@
       pointerEvents: "none",
       overflow: "hidden",
       zIndex: "1",
-      left: grid.x + "px",
-      top: grid.y + "px",
-      width: grid.width + "px",
-      height: grid.height + "px",
+      left: base.left + "px",
+      top: base.top + "px",
+      width: base.width + "px",
+      height: base.height + "px",
     });
 
-    var styles = bandStyles(grid);
     while (bands.length < styles.length) {
       var band = document.createElement("div");
       bands.push(band);
@@ -213,7 +283,7 @@
     }
   }
 
-  /** Coalesce bursts of scroll and keydown into one paint per frame. */
+  /** Coalesce bursts of scroll, typing, and mutations into one paint. */
   function schedule() {
     if (queued) {
       return;
@@ -221,6 +291,7 @@
     queued = true;
     requestAnimationFrame(function () {
       queued = false;
+      watchGrid();
       render();
     });
   }
@@ -229,6 +300,7 @@
     if (event.ctrlKey && event.shiftKey && event.code === "KeyH") {
       enabled = !enabled;
       event.preventDefault();
+      event.stopPropagation();
       render();
       return;
     }
@@ -238,14 +310,20 @@
   /**
    * Sheets also moves the selection without a click or a keypress: the name
    * box, Find, and collaborators all do it. Watching the outline elements
-   * covers those. Bursts collapse into one paint per frame.
+   * covers those. Switching tabs can replace the whole grid, so re-attach
+   * whenever the element we were watching is gone.
    */
   function watchGrid() {
-    var grid = document.getElementById(GRID_ID);
-    if (!grid || typeof MutationObserver !== "function") {
+    var node = grid();
+    if (!node || node === observed || typeof MutationObserver !== "function") {
       return;
     }
-    new MutationObserver(schedule).observe(grid, {
+    if (observer) {
+      observer.disconnect();
+    }
+    observed = node;
+    observer = new MutationObserver(schedule);
+    observer.observe(node, {
       attributes: true,
       childList: true,
       subtree: true,

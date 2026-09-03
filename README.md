@@ -20,14 +20,23 @@ Three approaches were tried server-side, each slower than it looks:
 
 The remaining server-side option is to write nothing at all, which is what `apps-script/Code.gs` now does. It moves one conditional-format rule onto the selected rows and columns. The rule's formula is the constant `="focuscell"="focuscell"`, so no cell is read and nothing recalculates, and because conditional formatting is an overlay your own fills are never touched. That lands around one to three seconds. Better, still not instant, and the trigger floor means it never will be.
 
+Two costs are inherent to *any* server-side version, this one included, and are worth knowing before you rely on it:
+
+- **It pollutes undo.** Each click changes the document, so `Ctrl+Z` walks back through highlight moves instead of your edits.
+- **Rules are all-or-nothing.** Apps Script can only replace the entire rule set for a sheet, so every click rewrites the whole list. Two clicks landing at once can restore a stale snapshot and drop a rule you had just added.
+
+Neither applies to the userscript, which never touches the document.
+
 ## What actually solves it
 
 Draw the highlight in the browser instead. Sheets renders the grid to canvas but keeps the selection outline as real positioned elements, so a small script can read where the cursor is and lay two translucent bands over the grid on the same frame as the click.
 
 - No server round trip, so no delay
-- Never edits the spreadsheet, so it cannot overwrite a fill or trigger a recalculation
+- Never edits the spreadsheet, so it cannot overwrite a fill, trigger a recalculation, or touch undo
 - No Apps Script quota, no per-sheet enabling, works on every tab
-- Handles multi-cell, whole-row, and whole-column picks
+- Handles single cells and multi-cell blocks
+
+Whole-row and whole-column picks deliberately draw nothing: Sheets already tints those edge to edge, so a band on top would just double-darken them.
 
 This is also what the established tools in this space do, including matsu7089's [Sheets Row Highlighter](https://github.com/matsu7089/sheets-row-highlighter), whose DOM approach this implementation follows.
 
@@ -64,9 +73,16 @@ npm start
 The mock publishes the same three hooks the real grid does (`#waffle-grid-container`, four `.active-cell-border` elements, `.selection` rectangles), and the page loads the exact file you install, so the behaviour on that page is the behaviour you get in Sheets.
 
 ```bash
-npm test    # engine rules, plus guards on both scripts
+npm test    # 46 tests
 npm run sync    # refresh the published copies after editing a source file
 ```
+
+`npm test` does not stop at static checks. Both scripts are loaded and executed against stand-in APIs:
+
+- `userscript/overlay.test.mjs` runs the real userscript in a hand-built DOM whose rectangles are set explicitly, because jsdom reports every box as zero and boxes are the only input this code has. It pins the geometry for single cells, blocks, several disjoint picks, frozen panes duplicating the outline, a missing or zero-size grid, and event coalescing.
+- `apps-script/code.test.mjs` loads `Code.gs` with fake `SpreadsheetApp`, `CacheService`, and `PropertiesService`. It checks that fifty clicks leave exactly one rule rather than fifty, that your own rules survive in order, that the click path makes two API calls and writes no values, and that every menu item points at a function that exists.
+
+Requires Node 22.6 or newer, for `--experimental-strip-types`.
 
 ## Files
 
@@ -78,6 +94,8 @@ npm run sync    # refresh the published copies after editing a source file
 | `apps-script/appsscript.json` | V8 runtime and spreadsheet scopes |
 | `src/components/sheets-dom-mock.tsx` | Stand-in grid exposing the Sheets DOM contract |
 | `src/lib/sheet-engine.ts` | Move and selection rules shared with the playground |
+| `userscript/dom-harness.mjs` | Minimal DOM the userscript is tested against |
+| `apps-script/script-harness.mjs` | Stand-in Sheets services `Code.gs` is tested against |
 | `scripts/sync-assets.mjs` | Copies sources into `public/` and `extension/` |
 
 ## License

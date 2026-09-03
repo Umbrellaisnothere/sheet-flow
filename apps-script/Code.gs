@@ -374,8 +374,23 @@ function moveVisibleRecords() {
     ui.alert("Destination must be a different column than the source.");
     return;
   }
+  if (destinationColumn > sheet.getMaxColumns()) {
+    ui.alert(
+      "Column " +
+        destinationLetter +
+        " does not exist on this sheet. Add columns first, or pick one that does."
+    );
+    return;
+  }
 
-  var sourceValues = sourceRange.getValues();
+  // Selecting a whole column hands back every row the sheet has, which can be
+  // tens of thousands. Nothing past the last row of data can move anyway.
+  var lastRow = sheet.getLastRow();
+  if (startRow + numRows - 1 > lastRow) {
+    numRows = Math.max(lastRow - startRow + 1, 1);
+  }
+
+  var sourceValues = sourceRange.offset(0, 0, numRows, 1).getValues();
   var destinationRange = sheet.getRange(
     startRow,
     destinationColumn,
@@ -395,10 +410,12 @@ function moveVisibleRecords() {
     nextSource[i] = [sourceValues[i][0]];
     nextDest[i] = [destinationValues[i][0]];
     row = startRow + i;
-    if (filter && sheet.isRowHiddenByFilter(row)) {
+    // isRowHiddenByFilter is one call per row, so ask only about rows that
+    // have something to move. Blank rows are skipped either way.
+    if (isBlank_(sourceValues[i][0])) {
       continue;
     }
-    if (isBlank_(sourceValues[i][0])) {
+    if (filter && sheet.isRowHiddenByFilter(row)) {
       continue;
     }
     if (!isBlank_(destinationValues[i][0])) {
@@ -412,7 +429,7 @@ function moveVisibleRecords() {
 
   if (moved > 0) {
     destinationRange.setValues(nextDest);
-    sourceRange.setValues(nextSource);
+    sourceRange.offset(0, 0, numRows, 1).setValues(nextSource);
   }
   sheet.setActiveRange(destinationRange);
   ui.alert(

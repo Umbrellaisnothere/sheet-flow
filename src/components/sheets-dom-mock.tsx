@@ -165,8 +165,10 @@ export function SheetsDomMock() {
           {label(pick)}
         </span>
         <span className="text-muted-foreground">
-          Click a cell, shift-click for a block, or click a row or column
-          header. Arrow keys move. Ctrl+Shift+H toggles the overlay.
+          Click a cell, shift-click for a block, or use the arrow keys.
+          Ctrl+Shift+H toggles the overlay. Row and column headers select a
+          whole row or column, which draws no band on purpose — Sheets already
+          tints those itself, so a band would only double-darken them.
         </span>
       </div>
 
@@ -256,6 +258,11 @@ export function SheetsDomMock() {
               style={{ position: "absolute", background: "#1a73e8" }}
             />
           ))}
+          {/*
+            Outline only, no fill. Real Sheets tints its own selection, but a
+            tint here would be mistaken for the overlay and make every check
+            look like a pass.
+          */}
           <div
             ref={selectionRef}
             className="selection"
@@ -263,7 +270,6 @@ export function SheetsDomMock() {
               position: "absolute",
               display: "none",
               border: "2px solid #1a73e8",
-              background: "rgba(26,115,232,0.04)",
             }}
           />
         </div>
