@@ -316,6 +316,12 @@ function removeFocusFormatting_(sheet) {
     values = condition.getCriteriaValues();
     formula = values && values.length ? String(values[0]) : "";
     drop = false;
+    if (
+      formula.indexOf("OR(ROW()=$") !== -1 &&
+      formula.indexOf("COLUMN()=$") !== -1
+    ) {
+      drop = true;
+    }
     for (j = 0; j < needles.length; j++) {
       if (needles[j] && formula.indexOf(needles[j]) !== -1) {
         drop = true;
