@@ -66,8 +66,9 @@ export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
           <p className="mt-1">
             Reload that worksheet. Open{" "}
             <strong>Excel Tools → Enable Focus Cell on this sheet</strong> and
-            authorize (that step does the heavy setup once). After that, clicks
-            only write three cells, so the highlight should feel instant.
+            authorize. Helper cells stay on this same tab (Sheets cannot
+            highlight from another sheet). After that, clicks only write
+            those two hidden cells.
           </p>
         </li>
         <li className="rounded-lg border bg-muted/30 p-3">

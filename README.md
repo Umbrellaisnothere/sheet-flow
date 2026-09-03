@@ -48,11 +48,11 @@ Hundreds of spreadsheet writes. Apps Script is fast in memory and slow per `getR
 
 ## What this script does instead
 
-**Focus Cell** installs highlight rules once on this sheet’s used area (named ranges, one formula, no `INDIRECT`). After that, each click only writes three helper cells. It does not rebuild formatting or scan the whole grid on every selection — that was the lag.
+**Focus Cell** cannot use a hidden helper tab. Google Sheets rejects conditional formatting that points at another sheet (`Exception: Conditional format rule cannot reference a different sheet`). Enable stores the active row and column in two hidden cells on **this** worksheet and installs one rule that reads `$H$1` / `$I$1` style references on that same tab. Each click only writes those two cells.
 
 **Move Visible Records** runs on `getActiveSheet()` only. It reads the source and destination once, walks the arrays, then writes each column once (and skips writes if nothing moved). After the move it selects the destination range so the UI does not keep the emptied source selected.
 
-Hidden-by-filter rows are skipped only when a filter exists. The script does not call `isRowHiddenByUser` per row (that is one extra service call per row).
+Hidden-by-filter rows are skipped only when a filter exists.
 
 ## Files
 
