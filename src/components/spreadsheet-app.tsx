@@ -207,9 +207,10 @@ export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
             </h1>
             <p className="max-w-xl text-sm text-white/85">
               Excel highlights the active row and column, then clears them when
-              you move. Sheets does not. This restores that, without rewriting
-              the whole sheet on every click, and moves filtered records without
-              the leftover-selection bug.
+              you move. Sheets does not. This restores that in Edge, Chrome,
+              Firefox, Brave, Opera, and Safari, without rewriting the sheet on
+              every click, and moves filtered records without the leftover-selection
+              bug.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -450,8 +451,9 @@ function HowItWorks({
       <p className="mt-1 text-sm text-muted-foreground">
         Every click in Sheets has to travel to Google and back before a script
         can paint anything. That round trip is the delay. This playground, and
-        the userscript you install, draw the crosshair in the browser instead.
-        Paste Code.gs only for Move Visible Records.
+        the userscript you install in Edge, Chrome, Firefox, or Safari, draw
+        the crosshair in the browser instead. Paste Code.gs only for Move
+        Visible Records.
       </p>
       <ol className="mt-3 space-y-2 text-sm">
         <li>

@@ -64,7 +64,7 @@ class FakeElement {
   }
 }
 
-export function createHarness() {
+export function createHarness(options = {}) {
   const body = new FakeElement("body")
   const frames = []
   const listeners = new Map()
@@ -77,11 +77,26 @@ export function createHarness() {
       body.descendants().find((node) => node.id === id) ?? null,
   }
 
+  const queueFrame = (callback) => frames.push(callback)
+
   const window = {
     addEventListener(type, handler) {
       if (!listeners.has(type)) listeners.set(type, [])
       listeners.get(type).push(handler)
     },
+    requestAnimationFrame: queueFrame,
+    webkitRequestAnimationFrame: queueFrame,
+    mozRequestAnimationFrame: queueFrame,
+    setTimeout: (callback) => {
+      frames.push(callback)
+      return 0
+    },
+  }
+
+  if (options.noAnimationFrame) {
+    delete window.requestAnimationFrame
+    delete window.webkitRequestAnimationFrame
+    delete window.mozRequestAnimationFrame
   }
 
   class MutationObserver {
@@ -103,7 +118,7 @@ export function createHarness() {
     document,
     window,
     MutationObserver,
-    requestAnimationFrame: (callback) => frames.push(callback),
+    requestAnimationFrame: window.requestAnimationFrame,
     JSON,
     Math,
     Object,

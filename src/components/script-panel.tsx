@@ -5,20 +5,21 @@ import { Check, Copy, FileCode2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { copyText } from "@/lib/copy-text"
 
 export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
     if (!scriptSource) return
-    try {
-      await navigator.clipboard.writeText(scriptSource)
-      setCopied(true)
-      toast.success("Apps Script copied. Paste it into Extensions → Apps Script.")
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
+    const ok = await copyText(scriptSource)
+    if (!ok) {
       toast.error("Could not copy. Select the script and copy it manually.")
+      return
     }
+    setCopied(true)
+    toast.success("Apps Script copied. Paste it into Extensions → Apps Script.")
+    window.setTimeout(() => setCopied(false), 2000)
   }
 
   return (
@@ -34,8 +35,8 @@ export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Bound script for <strong>Move Visible Records</strong> only. The
-            instant highlight lives in the browser — install the userscript
-            from{" "}
+            instant highlight lives in the browser (Edge, Chrome, Firefox,
+            Safari) — install the userscript from{" "}
             <a href="/instant" className="text-[#217346] underline">
               Instant crosshair
             </a>

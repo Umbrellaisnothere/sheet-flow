@@ -46,28 +46,57 @@ export default function InstantPage() {
           <SheetsDomMock />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-3">
           <section className="rounded-lg border border-[#d0d0d0] bg-white p-4 shadow-sm">
             <h2 className="font-heading text-base font-medium">
-              Install with Tampermonkey
+              Tampermonkey or Violentmonkey
             </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Works in Edge, Chrome, Firefox, Brave, Opera, and Safari. Install
+              the manager from your browser&apos;s store, paste the file below
+              as a new script, and reload Sheets.
+            </p>
             <ol className="mt-2 space-y-2 text-sm text-muted-foreground">
               <li>
-                1. Install{" "}
+                1.{" "}
+                <a
+                  className="text-[#217346] underline"
+                  href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd"
+                  rel="noreferrer noopener"
+                  target="_blank"
+                >
+                  Tampermonkey for Edge
+                </a>
+                ,{" "}
                 <a
                   className="text-[#217346] underline"
                   href="https://www.tampermonkey.net/"
                   rel="noreferrer noopener"
                   target="_blank"
                 >
-                  Tampermonkey
-                </a>{" "}
-                in Chrome, Edge, or Firefox.
+                  other browsers
+                </a>
+                , or{" "}
+                <a
+                  className="text-[#217346] underline"
+                  href="https://violentmonkey.github.io/get-it/"
+                  rel="noreferrer noopener"
+                  target="_blank"
+                >
+                  Violentmonkey
+                </a>
+                .
               </li>
-              <li>2. Open its dashboard and create a new script.</li>
               <li>
-                3. Replace the template with the file below, save, and reload
-                your spreadsheet.
+                2. Edge and Chrome 138+: open the extension details and turn on{" "}
+                <strong>Allow User Scripts</strong>, then restart the browser.
+                Firefox skips this. Toggle with Ctrl+Shift+H (Cmd+Shift+H on a
+                Mac). Firefox uses Ctrl+Shift+Period because Ctrl+Shift+H opens
+                History.
+              </li>
+              <li>
+                3. Dashboard → new script → replace the template → save → reload
+                the spreadsheet.
               </li>
             </ol>
             <div className="mt-3">
@@ -77,18 +106,41 @@ export default function InstantPage() {
 
           <section className="rounded-lg border border-[#d0d0d0] bg-white p-4 shadow-sm">
             <h2 className="font-heading text-base font-medium">
-              Or load it as an extension
+              Unpacked in Edge or Chrome
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              If you would rather not install Tampermonkey, the repository has
-              an <code>extension/</code> folder holding the same file plus a
-              manifest. Open <code>chrome://extensions</code>, turn on Developer
-              mode, and choose Load unpacked.
+              Skip the script manager. The <code>extension/</code> folder is a
+              Manifest V3 add-on that Edge loads the same way Chrome does.
+            </p>
+            <ol className="mt-2 space-y-2 text-sm text-muted-foreground">
+              <li>
+                1. Open <code>edge://extensions</code> or{" "}
+                <code>chrome://extensions</code>.
+              </li>
+              <li>2. Turn on Developer mode.</li>
+              <li>
+                3. Load unpacked and select the <code>extension</code> folder.
+              </li>
+            </ol>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Firefox: <code>about:debugging#/runtime/this-firefox</code> → Load
+              Temporary Add-on → <code>extension/manifest.json</code>.
+            </p>
+          </section>
+
+          <section className="rounded-lg border border-[#d0d0d0] bg-white p-4 shadow-sm">
+            <h2 className="font-heading text-base font-medium">
+              What this cannot cover
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              The Android and iOS Sheets <em>apps</em> are not web pages, so
+              nothing can draw over their grid. Internet Explorer and old Edge
+              (EdgeHTML) cannot run Google Sheets at all.
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Either way it only reads the page. It never edits your
-              spreadsheet, so it cannot overwrite a fill colour, and it works on
-              every tab at once with nothing to enable per sheet.
+              Safari cannot load the unpacked Chromium folder. Use Tampermonkey
+              from the App Store instead, then enable it under Safari →
+              Settings → Extensions.
             </p>
             <Link
               href="/script"

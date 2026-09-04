@@ -5,19 +5,20 @@ import { Check, Copy, Download } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button, buttonVariants } from "@/components/ui/button"
+import { copyText } from "@/lib/copy-text"
 
 export function ScriptCopyPage({ scriptSource }: { scriptSource: string }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(scriptSource)
-      setCopied(true)
-      toast.success("Copied. Paste into Extensions → Apps Script → Code.gs")
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
+    const ok = await copyText(scriptSource)
+    if (!ok) {
       toast.error("Copy failed. Select the text below and copy it manually.")
+      return
     }
+    setCopied(true)
+    toast.success("Copied. Paste into Extensions → Apps Script → Code.gs")
+    window.setTimeout(() => setCopied(false), 2000)
   }
 
   return (

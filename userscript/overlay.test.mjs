@@ -195,6 +195,49 @@ test("Ctrl+Shift+H hides the bands and restores them", () => {
   assert.equal(h.visibleBands().length, 2)
 })
 
+test("the toggle also works with event.key when event.code is missing", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.dispatch("keydown", { ctrlKey: true, shiftKey: true, key: "H" })
+  assert.deepEqual(h.visibleBands(), [])
+})
+
+test("the toggle works with Cmd+Shift+H on a Mac", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.dispatch("keydown", { metaKey: true, shiftKey: true, code: "KeyH" })
+  assert.deepEqual(h.visibleBands(), [])
+})
+
+test("Firefox can toggle with Ctrl+Shift+Period when History owns H", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.dispatch("keydown", { ctrlKey: true, shiftKey: true, code: "Period" })
+  assert.deepEqual(h.visibleBands(), [])
+})
+
+test("paints on the next timeout when requestAnimationFrame is missing", () => {
+  const h = createHarness({ noAnimationFrame: true })
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  assert.equal(h.pendingFrames(), 1)
+  h.flush()
+  assert.equal(h.visibleBands().length, 2)
+})
+
 test("typing does not toggle the highlight", () => {
   const h = createHarness()
   const grid = h.grid(100, 200, 800, 400)

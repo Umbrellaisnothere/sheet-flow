@@ -52,7 +52,11 @@ test("userscript never writes to the spreadsheet", () => {
   assert.doesNotMatch(userscript, /SpreadsheetApp|google\.script\.run|fetch\(/)
   assert.match(userscript, /waffle-grid-container/)
   assert.match(userscript, /active-cell-border/)
-  assert.match(userscript, /requestAnimationFrame/)
+  assert.match(userscript, /requestAnimationFrame|nextFrame/)
+  assert.match(userscript, /@match\s+https:\/\/docs\.google\.com\/spreadsheets\/\*/)
+  assert.match(userscript, /@include\s+https:\/\/docs\.google\.com\/spreadsheets\/\*/)
+  assert.match(userscript, /@inject-into\s+auto/)
+  assert.doesNotMatch(userscript, /@match\s+https:\/\/docs\.google\.com\/spreadsheets\/d\/\*/)
   assert.match(userscript, /pointerEvents/)
 })
 
@@ -60,4 +64,18 @@ test("published copies are in sync with their sources", () => {
   for (const [from, to] of copies) {
     assert.equal(read(to), read(from), `${to} is stale, run npm run sync`)
   }
+})
+
+test("the unpacked extension matches every Sheets URL in Chromium and Firefox", () => {
+  const manifest = JSON.parse(read("extension/manifest.json"))
+  assert.equal(manifest.manifest_version, 3)
+  assert.equal(manifest.minimum_chrome_version, "109")
+  assert.deepEqual(manifest.host_permissions, [
+    "https://docs.google.com/spreadsheets/*",
+  ])
+  const script = manifest.content_scripts[0]
+  assert.deepEqual(script.matches, ["https://docs.google.com/spreadsheets/*"])
+  assert.equal(script.all_frames, true)
+  assert.equal(script.run_at, "document_idle")
+  assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, "109.0")
 })

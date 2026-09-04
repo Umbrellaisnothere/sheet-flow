@@ -5,19 +5,22 @@ import { Check, Copy, Download } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button, buttonVariants } from "@/components/ui/button"
+import { copyText } from "@/lib/copy-text"
 
 export function UserscriptActions({ source }: { source: string }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(source)
-      setCopied(true)
-      toast.success("Copied. Paste it into a new Tampermonkey script.")
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
+    const ok = await copyText(source)
+    if (!ok) {
       toast.error("Copy failed. Select the script below and copy it manually.")
+      return
     }
+    setCopied(true)
+    toast.success(
+      "Copied. Paste it into Tampermonkey or Violentmonkey (Edge, Chrome, Firefox, Safari)."
+    )
+    window.setTimeout(() => setCopied(false), 2000)
   }
 
   return (

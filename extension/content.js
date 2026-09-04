@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         Focus Cell for Google Sheets
 // @namespace    https://github.com/sheets-focus-cell
-// @version      1.1.0
+// @version      1.2.0
 // @description  Excel-style active row and column highlight in Google Sheets, drawn in the browser so there is no Apps Script delay.
 // @author       sheets-focus-cell
-// @match        https://docs.google.com/spreadsheets/d/*
+// @match        https://docs.google.com/spreadsheets/*
+// @include      https://docs.google.com/spreadsheets/*
 // @run-at       document-idle
 // @grant        none
+// @inject-into  auto
 // ==/UserScript==
 
 /**
@@ -283,24 +285,62 @@
     }
   }
 
+  function nextFrame(callback) {
+    var raf =
+      window.requestAnimationFrame ||
+      window.webkitRequestAnimationFrame ||
+      window.mozRequestAnimationFrame;
+    if (typeof raf === "function") {
+      raf.call(window, callback);
+      return;
+    }
+    window.setTimeout(callback, 16);
+  }
+
   /** Coalesce bursts of scroll, typing, and mutations into one paint. */
   function schedule() {
     if (queued) {
       return;
     }
     queued = true;
-    requestAnimationFrame(function () {
+    nextFrame(function () {
       queued = false;
       watchGrid();
       render();
     });
   }
 
+  /**
+   * Chrome, Edge, Safari: Ctrl+Shift+H (Cmd+Shift+H on a Mac). Firefox binds
+   * Ctrl+Shift+H to the History library at the chrome level, so the page never
+   * sees it — Ctrl+Shift+Period is the fallback there. `event.code` is missing
+   * in some Firefox builds, so `event.key` is the second check. metaKey covers
+   * Edge and Chrome on a Mac. Alt is ignored so AltGr (Ctrl+Alt) cannot fire it.
+   */
+  function isToggleShortcut(event) {
+    if (!(event.ctrlKey || event.metaKey) || !event.shiftKey) {
+      return false;
+    }
+    if (event.altKey) {
+      return false;
+    }
+    var code = event.code || "";
+    var key = String(event.key || "").toLowerCase();
+    if (code === "KeyH" || key === "h") {
+      return true;
+    }
+    return code === "Period" || key === "." || key === ">";
+  }
+
   function onKeyDown(event) {
-    if (event.ctrlKey && event.shiftKey && event.code === "KeyH") {
+    if (isToggleShortcut(event)) {
       enabled = !enabled;
-      event.preventDefault();
-      event.stopPropagation();
+      if (event.preventDefault) {
+        event.preventDefault();
+      }
+      if (event.stopPropagation) {
+        event.stopPropagation();
+      }
       render();
       return;
     }

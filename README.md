@@ -42,11 +42,40 @@ This is also what the established tools in this space do, including matsu7089's 
 
 ### Install
 
-**Tampermonkey** (Chrome, Edge, Firefox): install [Tampermonkey](https://www.tampermonkey.net/), create a new script, replace the template with [`userscript/sheets-focus-cell.user.js`](userscript/sheets-focus-cell.user.js), save, and reload your spreadsheet.
+The highlighter runs in **your browser**, not in Apps Script. Use whichever of these matches how you browse. The same file works in all of them.
 
-**Unpacked extension** (Chrome, Edge): open `chrome://extensions`, turn on Developer mode, choose Load unpacked, and select the [`extension/`](extension) folder.
+| Browser | Install |
+| --- | --- |
+| **Microsoft Edge** | [Tampermonkey for Edge](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd), or load the unpacked folder from `edge://extensions` |
+| **Google Chrome** | [Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo), or load the unpacked folder from `chrome://extensions` |
+| **Firefox** | [Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/) or [Violentmonkey](https://addons.mozilla.org/firefox/addon/violentmonkey/), or load the unpacked folder from `about:debugging#/runtime/this-firefox` → Load Temporary Add-on → pick `extension/manifest.json` |
+| **Brave, Opera, Vivaldi** | Same as Chrome. Opera's unpacked page is `opera://extensions`. |
+| **Safari** (macOS / iOS) | [Tampermonkey for Safari](https://apps.apple.com/app/tampermonkey/id1482490089), then Safari → Settings → Extensions. Safari cannot load the Chromium unpacked folder. |
 
-`Ctrl+Shift+H` toggles the highlight. Colour, opacity, and whether to draw the row, the column, or both live in the `CONFIG` block at the top of the file.
+#### Tampermonkey / Violentmonkey (any of the browsers above)
+
+1. Install the manager from the store link in the table.
+2. **Chrome 138+ and Edge 138+:** open the manager's details (`chrome://extensions` or `edge://extensions`) and turn on **Allow User Scripts**, then restart the browser. Older Chrome/Edge: turn on **Developer mode** instead. Firefox does not need this extra toggle.
+3. Open the manager dashboard → Create a new script.
+4. Replace the template with [`userscript/sheets-focus-cell.user.js`](userscript/sheets-focus-cell.user.js), save, and reload your spreadsheet.
+
+The match pattern is `https://docs.google.com/spreadsheets/*`, which covers both `/d/…` and the `/u/0/d/…` URLs Google uses when you are signed into more than one account.
+
+#### Unpacked extension (Chrome, Edge, Brave, Opera)
+
+1. Open `chrome://extensions`, `edge://extensions`, or `opera://extensions`.
+2. Turn on **Developer mode**.
+3. Choose **Load unpacked** and select the [`extension/`](extension) folder.
+
+Edge is Chromium, so this is the same flow as Chrome. The highlight then stays on for every spreadsheet you open in that browser profile.
+
+#### Firefox unpacked (temporary)
+
+Firefox will not “Load unpacked” the Chrome way. Go to `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and pick [`extension/manifest.json`](extension/manifest.json). Temporary add-ons are removed when Firefox quits; for a lasting install, use Tampermonkey or Violentmonkey.
+
+`Ctrl+Shift+H` (Windows / Linux) or `Cmd+Shift+H` (macOS) toggles the highlight in Edge, Chrome, and Safari. Firefox binds Ctrl+Shift+H to History, so use **Ctrl+Shift+Period** (Cmd+Shift+Period on a Mac) there. Colour, opacity, and whether to draw the row, the column, or both live in the `CONFIG` block at the top of the file.
+
+The Sheets **mobile apps** and Internet Explorer / legacy Edge cannot run this. Google Sheets itself does not run in those last two, and the iOS/Android Sheets apps do not expose a page a userscript can draw on. Use Sheets in the mobile browser with Tampermonkey if you need it on a phone.
 
 ## Move Visible Records
 
@@ -73,7 +102,7 @@ npm start
 The mock publishes the same three hooks the real grid does (`#waffle-grid-container`, four `.active-cell-border` elements, `.selection` rectangles), and the page loads the exact file you install, so the behaviour on that page is the behaviour you get in Sheets.
 
 ```bash
-npm test    # 50 tests
+npm test    # behavioural tests for the userscript, Apps Script, and playground
 npm run sync    # refresh the published copies after editing a source file
 ```
 
