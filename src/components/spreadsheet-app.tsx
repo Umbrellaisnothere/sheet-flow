@@ -446,13 +446,12 @@ function HowItWorks({
 }) {
   return (
     <div className="rounded-lg border border-[#d0d0d0] bg-white p-4 shadow-sm">
-      <h2 className="font-heading text-base font-medium">Why the old script stuck — and why it got slow</h2>
+      <h2 className="font-heading text-base font-medium">Why the Apps Script highlight cannot be instant</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Painting the whole row never restores the previous one, so highlight
-        piles up. Writing helper cells so formulas can follow you is worse:
-        Sheets recalculates the tab, which is why a click can sit there for
-        eight seconds. This playground highlights in the browser. The Apps
-        Script only tints a small color window around the cell you clicked.
+        Every click in Sheets has to travel to Google and back before a script
+        can paint anything. That round trip is the delay. This playground, and
+        the userscript you install, draw the crosshair in the browser instead.
+        Paste Code.gs only for Move Visible Records.
       </p>
       <ol className="mt-3 space-y-2 text-sm">
         <li>

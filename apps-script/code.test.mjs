@@ -161,9 +161,26 @@ test("onSelectionChange survives a malformed event", () => {
   }
 })
 
+function runMove(script, sheet, destination = "E") {
+  script.SpreadsheetApp.getActiveSpreadsheet = () => ({
+    getActiveSheet: () => sheet,
+  })
+  const alerts = []
+  script.SpreadsheetApp.getUi = () => ({
+    ButtonSet: { OK_CANCEL: "OK_CANCEL" },
+    Button: { OK: "OK" },
+    alert: (...args) => alerts.push(args),
+    prompt: () => ({
+      getSelectedButton: () => "OK",
+      getResponseText: () => destination,
+    }),
+  })
+  script.moveVisibleRecords()
+  return alerts
+}
+
 test("move asks about hidden rows only for rows that have data", () => {
   const script = loadScript()
-  const source = { a1: "D2:D2000", row: 2 }
   const values = {}
   values["2,4,1999,1"] = Array.from({ length: 1999 }, (_, index) =>
     index < 3 ? [`SKU-${index}`] : [""]
@@ -175,32 +192,96 @@ test("move asks about hidden rows only for rows that have data", () => {
     activeRange: {
       ...selectionOf(2, 4, 1999, 1),
       a1: "D2:D2000",
-      getValues: () => values["2,4,1999,1"],
-      setValues: () => {},
       offset: (r, c, rows, cols) => sheet.getRange(2 + r, 4 + c, rows, cols),
     },
   })
   sheet.values["2,5,1999,1"] = Array.from({ length: 1999 }, () => [""])
 
-  script.SpreadsheetApp.getActiveSpreadsheet = () => ({
-    getActiveSheet: () => sheet,
-  })
-  script.SpreadsheetApp.getUi = () => ({
-    ButtonSet: { OK_CANCEL: "OK_CANCEL" },
-    Button: { OK: "OK" },
-    alert: () => {},
-    prompt: () => ({
-      getSelectedButton: () => "OK",
-      getResponseText: () => "E",
-    }),
-  })
-
-  script.moveVisibleRecords()
+  runMove(script, sheet)
 
   const filterCalls = sheet.calls.filter((call) =>
     call.startsWith("isRowHiddenByFilter")
   )
-  // One call per row would be ~2000 round trips and time the script out.
   assert.equal(filterCalls.length, 3)
-  assert.ok(source)
+})
+
+test("move copies formulas instead of collapsing them to displayed values", () => {
+  const script = loadScript()
+  const sheet = fakeSheet({
+    lastRow: 4,
+    values: {
+      "2,4,3,1": [[5], [6], ["text"]],
+      "2,5,3,1": [[""], [""], [""]],
+    },
+    formulas: {
+      "2,4,3,1": [["=A2"], ["=A3"], [""]],
+      "2,5,3,1": [[""], [""], [""]],
+    },
+    activeRange: {
+      ...selectionOf(2, 4, 3, 1),
+      offset: (r, c, rows, cols) => sheet.getRange(2 + r, 4 + c, rows, cols),
+    },
+  })
+
+  runMove(script, sheet)
+
+  assert.equal(
+    JSON.stringify(sheet.values["2,5,3,1"]),
+    JSON.stringify([["=A2"], ["=A3"], ["text"]])
+  )
+  assert.equal(
+    JSON.stringify(sheet.values["2,4,3,1"]),
+    JSON.stringify([[""], [""], [""]])
+  )
+})
+
+test("move skips a destination that only looks empty because a formula is there", () => {
+  const script = loadScript()
+  const sheet = fakeSheet({
+    lastRow: 2,
+    values: {
+      "2,4,1,1": [["SKU-1"]],
+      "2,5,1,1": [[""]],
+    },
+    formulas: {
+      "2,4,1,1": [[""]],
+      "2,5,1,1": [["=IF(1=0,\"\",\"\")"]],
+    },
+    activeRange: {
+      ...selectionOf(2, 4, 1, 1),
+      offset: (r, c, rows, cols) => sheet.getRange(2 + r, 4 + c, rows, cols),
+    },
+  })
+
+  const alerts = runMove(script, sheet)
+  assert.equal(sheet.calls.some((call) => call.startsWith("setValues")), false)
+  assert.match(String(alerts[0]), /Skipped because destination already had text: 1/)
+})
+
+test("move refuses a destination column the sheet does not have", () => {
+  const script = loadScript()
+  const sheet = fakeSheet({
+    maxColumns: 5,
+    lastRow: 2,
+    activeRange: {
+      ...selectionOf(1, 1, 1, 1),
+      offset: (r, c, rows, cols) => sheet.getRange(1 + r, 1 + c, rows, cols),
+    },
+  })
+  const alerts = runMove(script, sheet, "Z")
+  assert.match(String(alerts[0]), /does not exist/)
+})
+
+test("move on an empty sheet does not invent a row to write", () => {
+  const script = loadScript()
+  const sheet = fakeSheet({
+    lastRow: 0,
+    activeRange: {
+      ...selectionOf(1, 1, 1000, 1),
+      offset: (r, c, rows, cols) => sheet.getRange(1 + r, 1 + c, rows, cols),
+    },
+  })
+  const alerts = runMove(script, sheet)
+  assert.match(String(alerts[0]), /Nothing to move/)
+  assert.equal(sheet.calls.some((call) => call.startsWith("setValues")), false)
 })

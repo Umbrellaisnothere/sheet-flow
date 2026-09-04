@@ -33,9 +33,13 @@ export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
             Install in Google Sheets
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bound script for the spreadsheet you already use. The playground
-            above is the same logic, running here so you can try it without
-            Apps Script.
+            Bound script for <strong>Move Visible Records</strong> only. The
+            instant highlight lives in the browser — install the userscript
+            from{" "}
+            <a href="/instant" className="text-[#217346] underline">
+              Instant crosshair
+            </a>
+            , then disable Focus Cell in the menu if you had the old version on.
           </p>
         </div>
         <Button type="button" onClick={copy} disabled={!scriptSource}>
@@ -64,10 +68,10 @@ export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
             Step 2
           </p>
           <p className="mt-1">
-            Reload that worksheet. Open{" "}
-            <strong>Excel Tools → Enable Focus Cell on this sheet</strong> and
-            authorize. Enable is required: it strips leftover highlight
-            rules from older versions that made each click wait ~9 seconds.
+            Reload the spreadsheet. Do <strong>not</strong> turn on Focus Cell
+            in this menu if you installed the userscript — that path is the
+            slow one. If an older version left highlight rules behind, run{" "}
+            <strong>Disable Focus Cell on this sheet</strong> once.
           </p>
         </li>
         <li className="rounded-lg border bg-muted/30 p-3">

@@ -386,11 +386,17 @@ function moveVisibleRecords() {
   // Selecting a whole column hands back every row the sheet has, which can be
   // tens of thousands. Nothing past the last row of data can move anyway.
   var lastRow = sheet.getLastRow();
+  if (lastRow < startRow) {
+    ui.alert("Nothing to move — the selection is below the last row with data.");
+    return;
+  }
   if (startRow + numRows - 1 > lastRow) {
-    numRows = Math.max(lastRow - startRow + 1, 1);
+    numRows = lastRow - startRow + 1;
   }
 
-  var sourceValues = sourceRange.offset(0, 0, numRows, 1).getValues();
+  var sourceBlock = sourceRange.offset(0, 0, numRows, 1);
+  var sourceValues = sourceBlock.getValues();
+  var sourceFormulas = sourceBlock.getFormulas();
   var destinationRange = sheet.getRange(
     startRow,
     destinationColumn,
@@ -398,6 +404,7 @@ function moveVisibleRecords() {
     1
   );
   var destinationValues = destinationRange.getValues();
+  var destinationFormulas = destinationRange.getFormulas();
   var nextSource = [];
   var nextDest = [];
   var moved = 0;
@@ -405,24 +412,29 @@ function moveVisibleRecords() {
   var filter = sheet.getFilter();
   var i;
   var row;
+  var sourcePayload;
 
   for (i = 0; i < numRows; i++) {
     nextSource[i] = [sourceValues[i][0]];
     nextDest[i] = [destinationValues[i][0]];
     row = startRow + i;
+    sourcePayload = sourceFormulas[i][0] || sourceValues[i][0];
     // isRowHiddenByFilter is one call per row, so ask only about rows that
     // have something to move. Blank rows are skipped either way.
-    if (isBlank_(sourceValues[i][0])) {
+    if (isBlank_(sourcePayload) && isBlank_(sourceFormulas[i][0])) {
       continue;
     }
     if (filter && sheet.isRowHiddenByFilter(row)) {
       continue;
     }
-    if (!isBlank_(destinationValues[i][0])) {
+    if (
+      !isBlank_(destinationValues[i][0]) ||
+      !isBlank_(destinationFormulas[i][0])
+    ) {
       skipped++;
       continue;
     }
-    nextDest[i][0] = sourceValues[i][0];
+    nextDest[i][0] = sourcePayload;
     nextSource[i][0] = "";
     moved++;
   }

@@ -40,6 +40,7 @@ export function fakeSheet(options = {}) {
     hiddenRows: new Set(options.hiddenRows ?? []),
     filtered: options.filtered ?? false,
     values: options.values ?? {},
+    formulas: options.formulas ?? {},
 
     getSheetId: () => 1,
     getName: () => "Sheet1",
@@ -78,6 +79,7 @@ export function fakeSheet(options = {}) {
 
 function makeRange(sheet, a1, args) {
   const [row, column, numRows, numColumns] = args.length === 4 ? args : []
+  const key = `${row},${column},${numRows},${numColumns}`
   return {
     a1,
     getRow: () => row,
@@ -85,12 +87,16 @@ function makeRange(sheet, a1, args) {
     getNumRows: () => numRows,
     getNumColumns: () => numColumns,
     getValues() {
-      sheet.calls.push("getValues:" + a1)
-      return sheet.values[a1] ?? blank(numRows)
+      sheet.calls.push("getValues:" + key)
+      return sheet.values[key] ?? blank(numRows)
+    },
+    getFormulas() {
+      sheet.calls.push("getFormulas:" + key)
+      return sheet.formulas[key] ?? blank(numRows)
     },
     setValues(next) {
-      sheet.calls.push("setValues:" + a1)
-      sheet.values[a1] = next
+      sheet.calls.push("setValues:" + key)
+      sheet.values[key] = next
     },
     offset: (r, c, rows, cols) =>
       makeRange(sheet, a1, [row + r, column + c, rows ?? numRows, cols ?? numColumns]),

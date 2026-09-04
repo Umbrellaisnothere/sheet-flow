@@ -27,6 +27,7 @@ test("Apps Script has no top-level var/const/let (simple-trigger safe)", () => {
   assert.match(source, /function onSelectionChange\(/)
   assert.doesNotMatch(source, /INDIRECT\(/)
   assert.doesNotMatch(source, /getRangeByName\(/)
+  assert.match(source, /getFormulas\(/)
 })
 
 test("click path only moves a rule: no value writes, no colour reads", () => {
