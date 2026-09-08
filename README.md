@@ -42,7 +42,9 @@ This is also what the established tools in this space do, including matsu7089's 
 
 ### Install
 
-The highlighter runs in **your browser**, not in Apps Script. Use whichever of these matches how you browse. The same file works in all of them.
+The highlighter runs in **your browser**, not in Apps Script. Step-by-step Tampermonkey instructions, including how to change the highlight colour without editing the script, are in [`userscript/README.md`](userscript/README.md).
+
+The same file also works as an unpacked extension. Use whichever of these matches how you browse.
 
 | Browser | Install |
 | --- | --- |
@@ -57,7 +59,7 @@ The highlighter runs in **your browser**, not in Apps Script. Use whichever of t
 1. Install the manager from the store link in the table.
 2. **Chrome 138+ and Edge 138+:** open the manager's details (`chrome://extensions` or `edge://extensions`) and turn on **Allow User Scripts**, then restart the browser. Older Chrome/Edge: turn on **Developer mode** instead. Firefox does not need this extra toggle.
 3. Open the manager dashboard → Create a new script.
-4. Replace the template with [`userscript/sheets-focus-cell.user.js`](userscript/sheets-focus-cell.user.js), save, and reload your spreadsheet.
+4. Replace the template with [`userscript/sheets-focus-cell.user.js`](userscript/sheets-focus-cell.user.js), save, and reload your spreadsheet. Full walkthrough: [`userscript/README.md`](userscript/README.md).
 
 The match pattern is `https://docs.google.com/spreadsheets/*`, which covers both `/d/…` and the `/u/0/d/…` URLs Google uses when you are signed into more than one account.
 
@@ -73,7 +75,9 @@ Edge is Chromium, so this is the same flow as Chrome. The highlight then stays o
 
 Firefox will not “Load unpacked” the Chrome way. Go to `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and pick [`extension/manifest.json`](extension/manifest.json). Temporary add-ons are removed when Firefox quits; for a lasting install, use Tampermonkey or Violentmonkey.
 
-`Ctrl+Shift+H` (Windows / Linux) or `Cmd+Shift+H` (macOS) toggles the highlight in Edge, Chrome, and Safari. Firefox binds Ctrl+Shift+H to History, so use **Ctrl+Shift+Period** (Cmd+Shift+Period on a Mac) there. Colour, opacity, and whether to draw the row, the column, or both live in the `CONFIG` block at the top of the file.
+`Ctrl+Shift+H` (Windows / Linux) or `Cmd+Shift+H` (macOS) toggles the highlight in Edge, Chrome, and Safari. Firefox binds Ctrl+Shift+H to History, so use **Ctrl+Shift+Period** (Cmd+Shift+Period on a Mac) there.
+
+Change the colour from the **round chip at the bottom-right of the grid** — presets, a custom colour well, and opacity. That choice is stored in the browser, so you do not edit Tampermonkey or reload the script to try a new colour. Details: [`userscript/README.md`](userscript/README.md#3-change-the-highlight-colour-no-tampermonkey-edit).
 
 The Sheets **mobile apps** and Internet Explorer / legacy Edge cannot run this. Google Sheets itself does not run in those last two, and the iOS/Android Sheets apps do not expose a page a userscript can draw on. Use Sheets in the mobile browser with Tampermonkey if you need it on a phone.
 
@@ -118,6 +122,7 @@ Requires Node 22.6 or newer, for `--experimental-strip-types`.
 | Path | Purpose |
 | --- | --- |
 | `userscript/sheets-focus-cell.user.js` | The instant highlighter. Source of truth |
+| `userscript/README.md` | Tampermonkey install and live colour control |
 | `extension/` | Manifest plus a synced copy of the same file |
 | `apps-script/Code.gs` | Move Visible Records, and the slower server-side highlight |
 | `apps-script/appsscript.json` | V8 runtime and spreadsheet scopes |

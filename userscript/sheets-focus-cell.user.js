@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Focus Cell for Google Sheets
 // @namespace    https://github.com/sheets-focus-cell
-// @version      1.2.0
+// @version      1.3.0
 // @description  Excel-style active row and column highlight in Google Sheets, drawn in the browser so there is no Apps Script delay.
 // @author       sheets-focus-cell
 // @match        https://docs.google.com/spreadsheets/*
@@ -32,6 +32,15 @@
 (function () {
   "use strict";
 
+  var STORAGE_KEY = "sheets-focus-cell";
+  var PRESETS = [
+    "#1a73e8",
+    "#217346",
+    "#f9ab00",
+    "#e8710a",
+    "#a142f4",
+    "#d93025",
+  ];
   var CONFIG = {
     color: "#1a73e8",
     opacity: "0.1",
@@ -47,12 +56,313 @@
 
   var overlay = document.createElement("div");
   overlay.id = "sheets-focus-cell-overlay";
+  var panel = document.createElement("div");
+  panel.id = "sheets-focus-cell-panel";
+  var swatch = document.createElement("button");
+  var picker = document.createElement("input");
+  var opacityInput = document.createElement("input");
+  var tray = document.createElement("div");
+  var presetButtons = [];
   var bands = [];
   var enabled = true;
   var queued = false;
   var signature = "";
   var observer = null;
   var observed = null;
+  var panelOpen = false;
+
+  function normalizeColor(value) {
+    var text = String(value || "")
+      .trim()
+      .toLowerCase();
+    if (/^#[0-9a-f]{6}$/.test(text)) {
+      return text;
+    }
+    if (/^#[0-9a-f]{3}$/.test(text)) {
+      return (
+        "#" +
+        text.charAt(1) +
+        text.charAt(1) +
+        text.charAt(2) +
+        text.charAt(2) +
+        text.charAt(3) +
+        text.charAt(3)
+      );
+    }
+    return "";
+  }
+
+  function normalizeOpacity(value) {
+    var number = Number(value);
+    if (!(number > 0) || number > 0.5) {
+      return "";
+    }
+    return String(Math.round(number * 100) / 100);
+  }
+
+  function saveConfig() {
+    try {
+      var store = window.localStorage;
+      if (!store) {
+        return;
+      }
+      store.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          color: CONFIG.color,
+          opacity: CONFIG.opacity,
+        })
+      );
+    } catch {
+      // Same as load: the highlight still works, it just will not remember.
+    }
+  }
+
+  function applyConfig(next, persist) {
+    var color = next && normalizeColor(next.color);
+    var opacity = next && normalizeOpacity(next.opacity);
+    if (color) {
+      CONFIG.color = color;
+    }
+    if (opacity) {
+      CONFIG.opacity = opacity;
+    }
+    if (persist !== false) {
+      saveConfig();
+    }
+    signature = "";
+    paintBands();
+    syncPanel();
+    if (document.body) {
+      render();
+    }
+  }
+
+  function loadConfig() {
+    try {
+      var store = window.localStorage;
+      var raw = store && store.getItem(STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      var saved = JSON.parse(raw);
+      var color = normalizeColor(saved.color);
+      var opacity = normalizeOpacity(saved.opacity);
+      if (color) {
+        CONFIG.color = color;
+      }
+      if (opacity) {
+        CONFIG.opacity = opacity;
+      }
+    } catch {
+      // Private mode and blocked storage both throw. Defaults still work.
+    }
+  }
+
+  function paintBands() {
+    var i;
+    for (i = 0; i < bands.length; i++) {
+      bands[i].style.backgroundColor = CONFIG.color;
+      bands[i].style.opacity = CONFIG.opacity;
+    }
+  }
+
+  function halt(event) {
+    if (event.preventDefault) {
+      event.preventDefault();
+    }
+    if (event.stopPropagation) {
+      event.stopPropagation();
+    }
+  }
+
+  function syncPanel() {
+    swatch.style.backgroundColor = CONFIG.color;
+    picker.value = CONFIG.color;
+    opacityInput.value = CONFIG.opacity;
+    tray.style.display = panelOpen ? "flex" : "none";
+    swatch.title = panelOpen
+      ? "Close highlight colour"
+      : "Highlight colour — click to change, no Tampermonkey edit needed";
+    var i;
+    for (i = 0; i < presetButtons.length; i++) {
+      presetButtons[i].style.border =
+        presetButtons[i].getAttribute("data-color") === CONFIG.color
+          ? "2px solid #202124"
+          : "1px solid #dadce0";
+    }
+  }
+
+  function setPanelOpen(open) {
+    panelOpen = open;
+    syncPanel();
+    var node = grid();
+    var base = node ? node.getBoundingClientRect() : null;
+    placePanel(base && base.width && base.height ? base : null);
+  }
+
+  function placePanel(base) {
+    if (!panel.parentNode && document.body) {
+      document.body.appendChild(panel);
+    }
+    if (!base) {
+      panel.style.display = "none";
+      return;
+    }
+    var width = panelOpen ? 228 : 36;
+    var height = panelOpen ? 132 : 36;
+    Object.assign(panel.style, {
+      display: "flex",
+      position: "fixed",
+      zIndex: "3",
+      left: Math.max(8, base.left + base.width - width - 8) + "px",
+      top: Math.max(8, base.top + base.height - height - 8) + "px",
+    });
+  }
+
+  function buildPanel() {
+    Object.assign(panel.style, {
+      display: "none",
+      flexDirection: "column",
+      alignItems: "flex-end",
+      gap: "8px",
+      pointerEvents: "auto",
+      fontFamily: "Arial, sans-serif",
+    });
+
+    Object.assign(swatch.style, {
+      width: "28px",
+      height: "28px",
+      padding: "0",
+      border: "2px solid #fff",
+      borderRadius: "50%",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.35)",
+      cursor: "pointer",
+      backgroundColor: CONFIG.color,
+    });
+    swatch.type = "button";
+    swatch.setAttribute("aria-label", "Highlight colour");
+    swatch.addEventListener("click", function (event) {
+      halt(event);
+      setPanelOpen(!panelOpen);
+    });
+    swatch.addEventListener("mousedown", halt);
+
+    Object.assign(tray.style, {
+      display: "none",
+      flexDirection: "column",
+      gap: "8px",
+      padding: "10px",
+      background: "#fff",
+      border: "1px solid #dadce0",
+      borderRadius: "8px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+      minWidth: "200px",
+    });
+    tray.addEventListener("mousedown", halt);
+    tray.addEventListener("click", halt);
+
+    var label = document.createElement("div");
+    Object.assign(label.style, {
+      fontSize: "11px",
+      fontWeight: "600",
+      color: "#3c4043",
+    });
+    label.textContent = "Highlight colour";
+
+    var row = document.createElement("div");
+    Object.assign(row.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      flexWrap: "wrap",
+    });
+
+    var i;
+    var chip;
+    for (i = 0; i < PRESETS.length; i++) {
+      chip = document.createElement("button");
+      chip.type = "button";
+      chip.setAttribute("data-color", PRESETS[i]);
+      chip.setAttribute("aria-label", "Use " + PRESETS[i]);
+      Object.assign(chip.style, {
+        width: "18px",
+        height: "18px",
+        padding: "0",
+        border:
+          PRESETS[i] === CONFIG.color ? "2px solid #202124" : "1px solid #dadce0",
+        borderRadius: "50%",
+        backgroundColor: PRESETS[i],
+        cursor: "pointer",
+      });
+      chip.addEventListener(
+        "click",
+        (function (color) {
+          return function (event) {
+            halt(event);
+            applyConfig({ color: color });
+          };
+        })(PRESETS[i])
+      );
+      presetButtons.push(chip);
+      row.appendChild(chip);
+    }
+
+    picker.type = "color";
+    picker.value = CONFIG.color;
+    picker.title = "Custom colour";
+    Object.assign(picker.style, {
+      width: "28px",
+      height: "22px",
+      padding: "0",
+      border: "1px solid #dadce0",
+      background: "#fff",
+      cursor: "pointer",
+    });
+    picker.addEventListener("input", function () {
+      applyConfig({ color: picker.value });
+    });
+    picker.addEventListener("change", function () {
+      applyConfig({ color: picker.value });
+    });
+    row.appendChild(picker);
+
+    var opacityRow = document.createElement("label");
+    Object.assign(opacityRow.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      fontSize: "11px",
+      color: "#5f6368",
+    });
+    opacityRow.textContent = "Opacity";
+    opacityInput.type = "range";
+    opacityInput.min = "0.04";
+    opacityInput.max = "0.35";
+    opacityInput.step = "0.01";
+    opacityInput.value = CONFIG.opacity;
+    Object.assign(opacityInput.style, { flex: "1" });
+    opacityInput.addEventListener("input", function () {
+      applyConfig({ opacity: opacityInput.value });
+    });
+    opacityRow.appendChild(opacityInput);
+
+    var hint = document.createElement("div");
+    Object.assign(hint.style, {
+      fontSize: "10px",
+      color: "#80868b",
+      lineHeight: "1.35",
+    });
+    hint.textContent = "Saved in this browser. You do not edit Tampermonkey.";
+
+    tray.appendChild(label);
+    tray.appendChild(row);
+    tray.appendChild(opacityRow);
+    tray.appendChild(hint);
+    panel.appendChild(tray);
+    panel.appendChild(swatch);
+    syncPanel();
+  }
 
   function grid() {
     return document.getElementById(GRID_ID);
@@ -232,17 +542,35 @@
       document.body.appendChild(overlay);
       signature = "";
     }
+    if (!panel.parentNode) {
+      document.body.appendChild(panel);
+    }
 
-    var node = enabled ? grid() : null;
+    var node = grid();
     var base = node ? node.getBoundingClientRect() : null;
     // A grid with no size means the spreadsheet has not painted yet.
     if (!base || !base.width || !base.height) {
+      hide();
+      placePanel(null);
+      return;
+    }
+    placePanel(base);
+
+    if (!enabled) {
       hide();
       return;
     }
 
     var styles = bandStyles(node, base);
-    var next = JSON.stringify([base.left, base.top, base.width, base.height, styles]);
+    var next = JSON.stringify([
+      base.left,
+      base.top,
+      base.width,
+      base.height,
+      CONFIG.color,
+      CONFIG.opacity,
+      styles,
+    ]);
     if (next === signature) {
       return;
     }
@@ -333,16 +661,34 @@
   }
 
   function onKeyDown(event) {
+    if (panelOpen && (event.key === "Escape" || event.code === "Escape")) {
+      setPanelOpen(false);
+      halt(event);
+      return;
+    }
     if (isToggleShortcut(event)) {
       enabled = !enabled;
-      if (event.preventDefault) {
-        event.preventDefault();
-      }
-      if (event.stopPropagation) {
-        event.stopPropagation();
-      }
+      halt(event);
       render();
       return;
+    }
+    schedule();
+  }
+
+  function onCaptureClick(event) {
+    if (panelOpen) {
+      var node = event.target;
+      var inside = false;
+      while (node) {
+        if (node === panel) {
+          inside = true;
+          break;
+        }
+        node = node.parentNode;
+      }
+      if (!inside) {
+        setPanelOpen(false);
+      }
     }
     schedule();
   }
@@ -372,12 +718,18 @@
   }
 
   function start() {
+    loadConfig();
+    buildPanel();
     document.body.appendChild(overlay);
-    window.addEventListener("click", schedule, true);
+    document.body.appendChild(panel);
+    window.addEventListener("click", onCaptureClick, true);
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", schedule, true);
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
+    window.addEventListener("sheets-focus-cell:set", function (event) {
+      applyConfig(event.detail || {});
+    });
     watchGrid();
     render();
   }

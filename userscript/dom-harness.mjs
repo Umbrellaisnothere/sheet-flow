@@ -26,6 +26,11 @@ class FakeElement {
     this.className = ""
     this.id = ""
     this.box = { left: 0, top: 0, width: 0, height: 0 }
+    this.attrs = {}
+    this.type = ""
+    this.value = ""
+    this.title = ""
+    this.textContent = ""
   }
 
   appendChild(child) {
@@ -33,6 +38,19 @@ class FakeElement {
     this.childNodes.push(child)
     return child
   }
+
+  setAttribute(name, value) {
+    this.attrs[name] = String(value)
+    this[name] = value
+  }
+
+  getAttribute(name) {
+    if (name in this.attrs) return this.attrs[name]
+    const value = this[name]
+    return value == null ? null : String(value)
+  }
+
+  addEventListener() {}
 
   at(left, top, width, height) {
     this.box = { left, top, width, height }
@@ -79,6 +97,7 @@ export function createHarness(options = {}) {
 
   const queueFrame = (callback) => frames.push(callback)
 
+  const memory = { ...(options.storage || {}) }
   const window = {
     addEventListener(type, handler) {
       if (!listeners.has(type)) listeners.set(type, [])
@@ -90,6 +109,16 @@ export function createHarness(options = {}) {
     setTimeout: (callback) => {
       frames.push(callback)
       return 0
+    },
+    localStorage: {
+      getItem: (key) =>
+        Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : null,
+      setItem: (key, value) => {
+        memory[key] = String(value)
+      },
+      removeItem: (key) => {
+        delete memory[key]
+      },
     },
   }
 
@@ -186,6 +215,11 @@ export function createHarness(options = {}) {
 
     overlay: () =>
       body.childNodes.find((node) => node.id === "sheets-focus-cell-overlay"),
+
+    panel: () =>
+      body.childNodes.find((node) => node.id === "sheets-focus-cell-panel"),
+
+    storage: memory,
 
     /** Only the bands currently drawn, as plain numbers. */
     visibleBands() {

@@ -166,9 +166,11 @@ export function SheetsDomMock() {
         </span>
         <span className="text-muted-foreground">
           Click a cell, shift-click for a block, or use the arrow keys.
-          Ctrl+Shift+H toggles the overlay. Row and column headers select a
-          whole row or column, which draws no band on purpose — Sheets already
-          tints those itself, so a band would only double-darken them.
+          Ctrl+Shift+H toggles the overlay. The round chip at the
+          bottom-right of the grid changes the colour without editing the
+          script. Row and column headers select a whole row or column, which
+          draws no band on purpose — Sheets already tints those itself, so a
+          band would only double-darken them.
         </span>
       </div>
 

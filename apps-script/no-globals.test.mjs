@@ -58,6 +58,8 @@ test("userscript never writes to the spreadsheet", () => {
   assert.match(userscript, /@inject-into\s+auto/)
   assert.doesNotMatch(userscript, /@match\s+https:\/\/docs\.google\.com\/spreadsheets\/d\/\*/)
   assert.match(userscript, /pointerEvents/)
+  assert.match(userscript, /localStorage/)
+  assert.doesNotMatch(userscript, /innerHTML/)
 })
 
 test("published copies are in sync with their sources", () => {

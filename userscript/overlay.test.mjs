@@ -380,3 +380,61 @@ test("an unchanged selection does not rewrite the bands", () => {
     assert.equal(before[i], after[i], "style object was replaced")
   }
 })
+
+test("a saved colour is used without editing the script", () => {
+  const h = createHarness({
+    storage: {
+      "sheets-focus-cell": JSON.stringify({
+        color: "#217346",
+        opacity: "0.2",
+      }),
+    },
+  })
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  const band = h.overlay().childNodes.find((node) => node.style.display === "block")
+  assert.equal(band.style.backgroundColor, "#217346")
+  assert.equal(band.style.opacity, "0.2")
+})
+
+test("changing the colour updates the bands immediately and is remembered", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.dispatch("sheets-focus-cell:set", { detail: { color: "#d93025" } })
+
+  const band = h.overlay().childNodes.find((node) => node.style.display === "block")
+  assert.equal(band.style.backgroundColor, "#d93025")
+  assert.match(h.storage["sheets-focus-cell"], /#d93025/)
+})
+
+test("an invalid colour is ignored so a bad picker value cannot blank the highlight", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.dispatch("sheets-focus-cell:set", { detail: { color: "not-a-colour" } })
+  const band = h.overlay().childNodes.find((node) => node.style.display === "block")
+  assert.equal(band.style.backgroundColor, "#1a73e8")
+})
+
+test("the colour chip sits outside the overlay so it can still receive clicks", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  assert.ok(h.panel())
+  assert.notEqual(h.panel().parentNode, h.overlay())
+  assert.equal(h.panel().style.pointerEvents, "auto")
+  assert.equal(h.overlay().style.pointerEvents, "none")
+})
