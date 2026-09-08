@@ -96,9 +96,8 @@ export default function InstantPage() {
               </li>
               <li>
                 3. Dashboard → new script → replace the template → save → reload
-                the spreadsheet. After that, change the colour with the round
-                chip on the grid — you do not edit Tampermonkey to try a new
-                colour. The full walkthrough is{" "}
+                the spreadsheet. After that, type a hex colour or drag opacity
+                on the chip — a refresh keeps both. The full walkthrough is{" "}
                 <code>userscript/README.md</code>.
               </li>
             </ol>

@@ -90,6 +90,7 @@ export function createHarness(options = {}) {
 
   const document = {
     body,
+    activeElement: null,
     createElement: (tag) => new FakeElement(tag),
     getElementById: (id) =>
       body.descendants().find((node) => node.id === id) ?? null,
@@ -98,6 +99,12 @@ export function createHarness(options = {}) {
   const queueFrame = (callback) => frames.push(callback)
 
   const memory = { ...(options.storage || {}) }
+  const gm = { ...(options.gm || {}) }
+  const GM_getValue = (key, fallback) =>
+    Object.prototype.hasOwnProperty.call(gm, key) ? gm[key] : fallback
+  const GM_setValue = (key, value) => {
+    gm[key] = value
+  }
   const window = {
     addEventListener(type, handler) {
       if (!listeners.has(type)) listeners.set(type, [])
@@ -156,6 +163,9 @@ export function createHarness(options = {}) {
     Number,
     Infinity,
     console,
+    GM_getValue,
+    GM_setValue,
+    Promise,
   }
 
   vm.runInNewContext(userscriptSource, sandbox, { filename: userscriptPath })
@@ -220,6 +230,7 @@ export function createHarness(options = {}) {
       body.childNodes.find((node) => node.id === "sheets-focus-cell-panel"),
 
     storage: memory,
+    gm,
 
     /** Only the bands currently drawn, as plain numbers. */
     visibleBands() {

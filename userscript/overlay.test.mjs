@@ -412,6 +412,49 @@ test("changing the colour updates the bands immediately and is remembered", () =
   const band = h.overlay().childNodes.find((node) => node.style.display === "block")
   assert.equal(band.style.backgroundColor, "#d93025")
   assert.match(h.storage["sheets-focus-cell"], /#d93025/)
+  assert.match(h.gm["sheets-focus-cell"], /#d93025/)
+})
+
+test("a hex value without a hash sign is accepted", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.dispatch("sheets-focus-cell:set", { detail: { color: "217346" } })
+  const band = h.overlay().childNodes.find((node) => node.style.display === "block")
+  assert.equal(band.style.backgroundColor, "#217346")
+})
+
+test("opacity changes immediately and is remembered", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.dispatch("sheets-focus-cell:set", { detail: { opacity: "0.28" } })
+  const band = h.overlay().childNodes.find((node) => node.style.display === "block")
+  assert.equal(band.style.opacity, "0.28")
+  assert.match(h.storage["sheets-focus-cell"], /0\.28/)
+  assert.match(h.gm["sheets-focus-cell"], /0\.28/)
+})
+
+test("a saved Tampermonkey value survives a new page load", () => {
+  const payload = JSON.stringify({ color: "#e8710a", opacity: "0.22" })
+  const h = createHarness({
+    gm: { "sheets-focus-cell": payload },
+    storage: {},
+  })
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  const band = h.overlay().childNodes.find((node) => node.style.display === "block")
+  assert.equal(band.style.backgroundColor, "#e8710a")
+  assert.equal(band.style.opacity, "0.22")
 })
 
 test("an invalid colour is ignored so a bad picker value cannot blank the highlight", () => {

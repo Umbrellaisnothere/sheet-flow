@@ -1,13 +1,16 @@
 // ==UserScript==
 // @name         Focus Cell for Google Sheets
 // @namespace    https://github.com/sheets-focus-cell
-// @version      1.3.0
+// @version      1.4.0
 // @description  Excel-style active row and column highlight in Google Sheets, drawn in the browser so there is no Apps Script delay.
 // @author       sheets-focus-cell
 // @match        https://docs.google.com/spreadsheets/*
 // @include      https://docs.google.com/spreadsheets/*
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM.getValue
+// @grant        GM.setValue
 // @inject-into  auto
 // ==/UserScript==
 
@@ -33,6 +36,8 @@
   "use strict";
 
   var STORAGE_KEY = "sheets-focus-cell";
+  var OPACITY_MIN = 0.05;
+  var OPACITY_MAX = 0.5;
   var PRESETS = [
     "#1a73e8",
     "#217346",
@@ -60,7 +65,10 @@
   panel.id = "sheets-focus-cell-panel";
   var swatch = document.createElement("button");
   var picker = document.createElement("input");
-  var opacityInput = document.createElement("input");
+  var hexInput = document.createElement("input");
+  var opacityTrack = document.createElement("div");
+  var opacityThumb = document.createElement("div");
+  var opacityValue = document.createElement("span");
   var tray = document.createElement("div");
   var presetButtons = [];
   var bands = [];
@@ -70,11 +78,16 @@
   var observer = null;
   var observed = null;
   var panelOpen = false;
+  var opacityDragging = false;
 
   function normalizeColor(value) {
     var text = String(value || "")
       .trim()
-      .toLowerCase();
+      .toLowerCase()
+      .replace(/\s/g, "");
+    if (text.charAt(0) !== "#") {
+      text = "#" + text;
+    }
     if (/^#[0-9a-f]{6}$/.test(text)) {
       return text;
     }
@@ -94,28 +107,109 @@
 
   function normalizeOpacity(value) {
     var number = Number(value);
-    if (!(number > 0) || number > 0.5) {
+    if (number !== number) {
       return "";
+    }
+    if (number < OPACITY_MIN) {
+      number = OPACITY_MIN;
+    }
+    if (number > OPACITY_MAX) {
+      number = OPACITY_MAX;
     }
     return String(Math.round(number * 100) / 100);
   }
 
-  function saveConfig() {
+  function readLocal() {
     try {
       var store = window.localStorage;
-      if (!store) {
+      return (store && store.getItem(STORAGE_KEY)) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function applyStoredRaw(raw) {
+    if (!raw) {
+      return;
+    }
+    try {
+      var saved = typeof raw === "string" ? JSON.parse(raw) : raw;
+      var color = normalizeColor(saved && saved.color);
+      var opacity = normalizeOpacity(saved && saved.opacity);
+      if (color) {
+        CONFIG.color = color;
+      }
+      if (opacity) {
+        CONFIG.opacity = opacity;
+      }
+    } catch {
+      // Corrupt storage is ignored; defaults still work.
+    }
+  }
+
+  function saveConfig() {
+    var payload = JSON.stringify({
+      color: CONFIG.color,
+      opacity: CONFIG.opacity,
+    });
+    try {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(STORAGE_KEY, payload);
+      }
+    } catch {
+      // Fall through to localStorage.
+    }
+    try {
+      if (typeof GM !== "undefined" && GM && typeof GM.setValue === "function") {
+        GM.setValue(STORAGE_KEY, payload);
+      }
+    } catch {
+      // Unpacked extension and the playground have no GM API.
+    }
+    try {
+      if (window.localStorage) {
+        window.localStorage.setItem(STORAGE_KEY, payload);
+      }
+    } catch {
+      // Private mode still shows the highlight; it just will not remember.
+    }
+  }
+
+  function loadStored(callback) {
+    var finished = false;
+    function done(raw) {
+      if (finished) {
         return;
       }
-      store.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          color: CONFIG.color,
-          opacity: CONFIG.opacity,
-        })
-      );
-    } catch {
-      // Same as load: the highlight still works, it just will not remember.
+      finished = true;
+      applyStoredRaw(raw || readLocal());
+      callback();
     }
+
+    try {
+      if (typeof GM_getValue === "function") {
+        done(GM_getValue(STORAGE_KEY, "") || "");
+        return;
+      }
+    } catch {
+      // Try the async GM API next.
+    }
+    try {
+      if (typeof GM !== "undefined" && GM && typeof GM.getValue === "function") {
+        Promise.resolve(GM.getValue(STORAGE_KEY, "")).then(
+          function (value) {
+            done(value || "");
+          },
+          function () {
+            done("");
+          }
+        );
+        return;
+      }
+    } catch {
+      // localStorage only.
+    }
+    done(readLocal());
   }
 
   function applyConfig(next, persist) {
@@ -138,27 +232,6 @@
     }
   }
 
-  function loadConfig() {
-    try {
-      var store = window.localStorage;
-      var raw = store && store.getItem(STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
-      var saved = JSON.parse(raw);
-      var color = normalizeColor(saved.color);
-      var opacity = normalizeOpacity(saved.opacity);
-      if (color) {
-        CONFIG.color = color;
-      }
-      if (opacity) {
-        CONFIG.opacity = opacity;
-      }
-    } catch {
-      // Private mode and blocked storage both throw. Defaults still work.
-    }
-  }
-
   function paintBands() {
     var i;
     for (i = 0; i < bands.length; i++) {
@@ -176,10 +249,42 @@
     }
   }
 
+  function keepInPanel(event) {
+    if (event.stopPropagation) {
+      event.stopPropagation();
+    }
+  }
+
+  function commitHex() {
+    var typed = hexInput.value;
+    var color = normalizeColor(typed);
+    if (color) {
+      applyConfig({ color: color });
+      return;
+    }
+    hexInput.value = CONFIG.color;
+  }
+
+  function thumbLeft() {
+    var span = OPACITY_MAX - OPACITY_MIN;
+    var t = span ? (Number(CONFIG.opacity) - OPACITY_MIN) / span : 0;
+    if (t < 0) {
+      t = 0;
+    }
+    if (t > 1) {
+      t = 1;
+    }
+    return Math.round(t * 144) + "px";
+  }
+
   function syncPanel() {
     swatch.style.backgroundColor = CONFIG.color;
     picker.value = CONFIG.color;
-    opacityInput.value = CONFIG.opacity;
+    if (document.activeElement !== hexInput) {
+      hexInput.value = CONFIG.color;
+    }
+    opacityThumb.style.left = thumbLeft();
+    opacityValue.textContent = Math.round(Number(CONFIG.opacity) * 100) + "%";
     tray.style.display = panelOpen ? "flex" : "none";
     swatch.title = panelOpen
       ? "Close highlight colour"
@@ -191,6 +296,17 @@
           ? "2px solid #202124"
           : "1px solid #dadce0";
     }
+  }
+
+  function opacityFromPointer(event) {
+    var box = opacityTrack.getBoundingClientRect();
+    if (!box.width) {
+      return;
+    }
+    var t = (event.clientX - box.left) / box.width;
+    applyConfig({
+      opacity: OPACITY_MIN + t * (OPACITY_MAX - OPACITY_MIN),
+    });
   }
 
   function setPanelOpen(open) {
@@ -209,12 +325,12 @@
       panel.style.display = "none";
       return;
     }
-    var width = panelOpen ? 228 : 36;
-    var height = panelOpen ? 132 : 36;
+    var width = panelOpen ? 252 : 36;
+    var height = panelOpen ? 188 : 36;
     Object.assign(panel.style, {
       display: "flex",
       position: "fixed",
-      zIndex: "3",
+      zIndex: "10000",
       left: Math.max(8, base.left + base.width - width - 8) + "px",
       top: Math.max(8, base.top + base.height - height - 8) + "px",
     });
@@ -257,10 +373,10 @@
       border: "1px solid #dadce0",
       borderRadius: "8px",
       boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
-      minWidth: "200px",
+      minWidth: "228px",
     });
-    tray.addEventListener("mousedown", halt);
-    tray.addEventListener("click", halt);
+    tray.addEventListener("mousedown", keepInPanel);
+    tray.addEventListener("click", keepInPanel);
 
     var label = document.createElement("div");
     Object.assign(label.style, {
@@ -325,9 +441,39 @@
     picker.addEventListener("change", function () {
       applyConfig({ color: picker.value });
     });
+    picker.addEventListener("mousedown", keepInPanel);
     row.appendChild(picker);
 
-    var opacityRow = document.createElement("label");
+    hexInput.type = "text";
+    hexInput.value = CONFIG.color;
+    hexInput.maxLength = 7;
+    hexInput.spellcheck = false;
+    hexInput.setAttribute("aria-label", "Hex colour");
+    hexInput.placeholder = "#1a73e8";
+    Object.assign(hexInput.style, {
+      width: "100%",
+      boxSizing: "border-box",
+      padding: "4px 6px",
+      border: "1px solid #dadce0",
+      borderRadius: "4px",
+      fontFamily: "ui-monospace, Consolas, monospace",
+      fontSize: "12px",
+      color: "#202124",
+    });
+    hexInput.addEventListener("keydown", function (event) {
+      keepInPanel(event);
+      if (event.key === "Enter") {
+        commitHex();
+        if (event.preventDefault) {
+          event.preventDefault();
+        }
+      }
+    });
+    hexInput.addEventListener("keyup", keepInPanel);
+    hexInput.addEventListener("change", commitHex);
+    hexInput.addEventListener("blur", commitHex);
+
+    var opacityRow = document.createElement("div");
     Object.assign(opacityRow.style, {
       display: "flex",
       alignItems: "center",
@@ -335,17 +481,51 @@
       fontSize: "11px",
       color: "#5f6368",
     });
-    opacityRow.textContent = "Opacity";
-    opacityInput.type = "range";
-    opacityInput.min = "0.04";
-    opacityInput.max = "0.35";
-    opacityInput.step = "0.01";
-    opacityInput.value = CONFIG.opacity;
-    Object.assign(opacityInput.style, { flex: "1" });
-    opacityInput.addEventListener("input", function () {
-      applyConfig({ opacity: opacityInput.value });
+    var opacityCaption = document.createElement("span");
+    opacityCaption.textContent = "Opacity";
+    Object.assign(opacityTrack.style, {
+      position: "relative",
+      flex: "1",
+      height: "10px",
+      borderRadius: "5px",
+      background: "#e8eaed",
+      cursor: "pointer",
+      minWidth: "120px",
     });
-    opacityRow.appendChild(opacityInput);
+    opacityTrack.setAttribute("role", "slider");
+    opacityTrack.setAttribute("aria-label", "Highlight opacity");
+    Object.assign(opacityThumb.style, {
+      position: "absolute",
+      top: "-4px",
+      width: "16px",
+      height: "16px",
+      borderRadius: "50%",
+      background: "#1a73e8",
+      border: "2px solid #fff",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
+      pointerEvents: "none",
+      left: thumbLeft(),
+    });
+    opacityTrack.appendChild(opacityThumb);
+    Object.assign(opacityValue.style, {
+      width: "32px",
+      textAlign: "right",
+      fontVariantNumeric: "tabular-nums",
+      color: "#3c4043",
+    });
+    opacityValue.textContent = Math.round(Number(CONFIG.opacity) * 100) + "%";
+    opacityRow.appendChild(opacityCaption);
+    opacityRow.appendChild(opacityTrack);
+    opacityRow.appendChild(opacityValue);
+
+    opacityTrack.addEventListener("mousedown", function (event) {
+      keepInPanel(event);
+      if (event.preventDefault) {
+        event.preventDefault();
+      }
+      opacityDragging = true;
+      opacityFromPointer(event);
+    });
 
     var hint = document.createElement("div");
     Object.assign(hint.style, {
@@ -353,10 +533,12 @@
       color: "#80868b",
       lineHeight: "1.35",
     });
-    hint.textContent = "Saved in this browser. You do not edit Tampermonkey.";
+    hint.textContent =
+      "Hex and opacity are saved in this browser (and Tampermonkey). Refresh keeps them.";
 
     tray.appendChild(label);
     tray.appendChild(row);
+    tray.appendChild(hexInput);
     tray.appendChild(opacityRow);
     tray.appendChild(hint);
     panel.appendChild(tray);
@@ -661,6 +843,9 @@
   }
 
   function onKeyDown(event) {
+    if (event.target === hexInput) {
+      return;
+    }
     if (panelOpen && (event.key === "Escape" || event.code === "Escape")) {
       setPanelOpen(false);
       halt(event);
@@ -673,6 +858,23 @@
       return;
     }
     schedule();
+  }
+
+  function onOpacityMove(event) {
+    if (!opacityDragging) {
+      return;
+    }
+    keepInPanel(event);
+    opacityFromPointer(event);
+  }
+
+  function onOpacityUp(event) {
+    if (!opacityDragging) {
+      return;
+    }
+    keepInPanel(event);
+    opacityDragging = false;
+    opacityFromPointer(event);
   }
 
   function onCaptureClick(event) {
@@ -718,20 +920,23 @@
   }
 
   function start() {
-    loadConfig();
-    buildPanel();
-    document.body.appendChild(overlay);
-    document.body.appendChild(panel);
-    window.addEventListener("click", onCaptureClick, true);
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", schedule, true);
-    window.addEventListener("scroll", schedule, true);
-    window.addEventListener("resize", schedule);
-    window.addEventListener("sheets-focus-cell:set", function (event) {
-      applyConfig(event.detail || {});
+    loadStored(function () {
+      buildPanel();
+      document.body.appendChild(overlay);
+      document.body.appendChild(panel);
+      window.addEventListener("click", onCaptureClick, true);
+      window.addEventListener("keydown", onKeyDown, true);
+      window.addEventListener("keyup", schedule, true);
+      window.addEventListener("scroll", schedule, true);
+      window.addEventListener("resize", schedule);
+      window.addEventListener("mousemove", onOpacityMove, true);
+      window.addEventListener("mouseup", onOpacityUp, true);
+      window.addEventListener("sheets-focus-cell:set", function (event) {
+        applyConfig(event.detail || {});
+      });
+      watchGrid();
+      render();
     });
-    watchGrid();
-    render();
   }
 
   if (document.body) {

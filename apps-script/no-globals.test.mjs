@@ -59,6 +59,7 @@ test("userscript never writes to the spreadsheet", () => {
   assert.doesNotMatch(userscript, /@match\s+https:\/\/docs\.google\.com\/spreadsheets\/d\/\*/)
   assert.match(userscript, /pointerEvents/)
   assert.match(userscript, /localStorage/)
+  assert.match(userscript, /GM_setValue/)
   assert.doesNotMatch(userscript, /innerHTML/)
 })
 

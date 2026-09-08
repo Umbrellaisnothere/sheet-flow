@@ -77,7 +77,7 @@ Firefox will not “Load unpacked” the Chrome way. Go to `about:debugging#/run
 
 `Ctrl+Shift+H` (Windows / Linux) or `Cmd+Shift+H` (macOS) toggles the highlight in Edge, Chrome, and Safari. Firefox binds Ctrl+Shift+H to History, so use **Ctrl+Shift+Period** (Cmd+Shift+Period on a Mac) there.
 
-Change the colour from the **round chip at the bottom-right of the grid** — presets, a custom colour well, and opacity. That choice is stored in the browser, so you do not edit Tampermonkey or reload the script to try a new colour. Details: [`userscript/README.md`](userscript/README.md#3-change-the-highlight-colour-no-tampermonkey-edit).
+Change the colour from the **round chip at the bottom-right of the grid**: presets, a colour well, a **hex field** (`#217346` or `217346`), and an **opacity slider** that you can drag. Hex and opacity are saved in Tampermonkey storage (and in the browser), so a refresh keeps them. You do not edit Tampermonkey to try a new colour. Details: [`userscript/README.md`](userscript/README.md#3-colour-hex-and-opacity-no-tampermonkey-edit).
 
 The Sheets **mobile apps** and Internet Explorer / legacy Edge cannot run this. Google Sheets itself does not run in those last two, and the iOS/Android Sheets apps do not expose a page a userscript can draw on. Use Sheets in the mobile browser with Tampermonkey if you need it on a phone.
 

@@ -29,18 +29,23 @@ The script matches `https://docs.google.com/spreadsheets/*`, including multi-acc
 
 Tampermonkey should show **Focus Cell for Google Sheets** as enabled. If the highlight is missing, confirm the script is on, that **Allow User Scripts** is on (Chrome/Edge), and that you reloaded the spreadsheet after saving.
 
-## 3. Change the highlight colour (no Tampermonkey edit)
+## 3. Colour, hex, and opacity (no Tampermonkey edit)
 
-You do **not** open the Tampermonkey editor to pick a colour, and you do not refresh the script.
+You do **not** open the Tampermonkey editor to pick a colour or change opacity. After the script is installed, everything is on the sheet.
 
 1. Open any Google Sheet with the script enabled.
 2. Click the **round colour chip** at the bottom-right of the grid.
-3. Pick a preset, or use the colour well for any custom colour.
-4. Drag **Opacity** if the band is too faint or too strong.
+3. Pick a preset, use the colour well, **or type a hex value** such as `#217346` or `217346`. Press Enter.
+4. Drag the **Opacity** bar. The thumb moves and the percentage updates (5%–50%). The highlight on the grid changes as you drag.
 
-The choice is stored in this browser (`localStorage` on `docs.google.com`). It survives reloads and new tabs in the same profile. It does not follow you to another computer or another browser profile.
+Hex and opacity are stored in two places so a refresh does not reset them:
 
-To reset, pick the blue preset (`#1a73e8`) or the Excel-green one (`#217346`).
+- **Tampermonkey’s own storage** (`GM_setValue`) — this is the reliable copy. You never open the editor; the script writes it for you.
+- **This browser’s `localStorage`** — used as a backup, and by the unpacked extension which has no Tampermonkey API.
+
+Reload the spreadsheet, or close and reopen the tab: the last colour and opacity come back. They stay in this browser profile. They do not follow you to another computer.
+
+To reset, pick the blue preset (`#1a73e8`) or type that hex.
 
 ## 4. Everyday shortcuts
 
@@ -53,7 +58,7 @@ Whole-row and whole-column picks add no extra band: Sheets already tints those e
 
 ## 5. Updating the script later
 
-Colour changes do not require an update. You only paste a new `sheets-focus-cell.user.js` when the project ships behaviour changes (new shortcuts, bug fixes). After replacing the file in Tampermonkey, save and reload Sheets. Your saved colour is kept, because it lives in the browser, not in the file.
+Colour changes do not require an update. You only paste a new `sheets-focus-cell.user.js` when the project ships behaviour changes (new shortcuts, bug fixes). After replacing the file in Tampermonkey, save and reload Sheets. Your saved colour and opacity are kept in Tampermonkey storage, not in the file.
 
 ## 6. If it does not appear
 
