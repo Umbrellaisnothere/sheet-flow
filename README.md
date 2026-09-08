@@ -113,6 +113,7 @@ npm run sync    # refresh the published copies after editing a source file
 `npm test` does not stop at static checks. Both scripts are loaded and executed against stand-in APIs:
 
 - `userscript/overlay.test.mjs` runs the real userscript in a hand-built DOM whose rectangles are set explicitly, because jsdom reports every box as zero and boxes are the only input this code has. It pins the geometry for single cells, blocks, several disjoint picks, frozen panes duplicating the outline, a missing or zero-size grid, and event coalescing.
+- `userscript/compat-security.test.mjs` checks Tampermonkey metadata (HTTPS-only Sheets match, storage-only grants), security (no `eval`/`fetch`/`innerHTML`, XSS hex rejected, corrupt GM storage ignored), compatibility (no GM API, async `GM.getValue`, private-mode storage, a second script copy), and usability (aria labels, chip above the overlay, README install steps).
 - `apps-script/code.test.mjs` loads `Code.gs` with fake `SpreadsheetApp`, `CacheService`, and `PropertiesService`. It checks that fifty clicks leave exactly one rule rather than fifty, that your own rules survive in order, that the click path makes two API calls and writes no values, and that every menu item points at a function that exists.
 
 Requires Node 22.6 or newer, for `--experimental-strip-types`.
@@ -129,6 +130,7 @@ Requires Node 22.6 or newer, for `--experimental-strip-types`.
 | `src/components/sheets-dom-mock.tsx` | Stand-in grid exposing the Sheets DOM contract |
 | `src/lib/sheet-engine.ts` | Move and selection rules shared with the playground |
 | `userscript/dom-harness.mjs` | Minimal DOM the userscript is tested against |
+| `userscript/compat-security.test.mjs` | Tampermonkey compatibility, security, and usability checks |
 | `apps-script/script-harness.mjs` | Stand-in Sheets services `Code.gs` is tested against |
 | `scripts/sync-assets.mjs` | Copies sources into `public/` and `extension/` |
 

@@ -35,6 +35,16 @@
 (function () {
   "use strict";
 
+  // A second copy of the script (two Tampermonkey entries, or the
+  // unpacked extension plus the userscript) must not stack overlays.
+  if (
+    typeof document !== "undefined" &&
+    document.getElementById &&
+    document.getElementById("sheets-focus-cell-overlay")
+  ) {
+    return;
+  }
+
   var STORAGE_KEY = "sheets-focus-cell";
   var OPACITY_MIN = 0.05;
   var OPACITY_MAX = 0.5;
@@ -195,7 +205,12 @@
       // Try the async GM API next.
     }
     try {
-      if (typeof GM !== "undefined" && GM && typeof GM.getValue === "function") {
+      if (
+        typeof GM !== "undefined" &&
+        GM &&
+        typeof GM.getValue === "function" &&
+        typeof Promise !== "undefined"
+      ) {
         Promise.resolve(GM.getValue(STORAGE_KEY, "")).then(
           function (value) {
             done(value || "");

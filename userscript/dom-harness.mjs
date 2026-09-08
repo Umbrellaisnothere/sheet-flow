@@ -100,11 +100,35 @@ export function createHarness(options = {}) {
 
   const memory = { ...(options.storage || {}) }
   const gm = { ...(options.gm || {}) }
-  const GM_getValue = (key, fallback) =>
-    Object.prototype.hasOwnProperty.call(gm, key) ? gm[key] : fallback
+  const GM_getValue = (key, fallback) => {
+    if (options.gmGetThrows) throw new Error("gm blocked")
+    return Object.prototype.hasOwnProperty.call(gm, key) ? gm[key] : fallback
+  }
   const GM_setValue = (key, value) => {
     gm[key] = value
   }
+  const localStore = options.localStorageThrows
+    ? {
+        getItem() {
+          throw new Error("storage blocked")
+        },
+        setItem() {
+          throw new Error("storage blocked")
+        },
+        removeItem() {
+          throw new Error("storage blocked")
+        },
+      }
+    : {
+        getItem: (key) =>
+          Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : null,
+        setItem: (key, value) => {
+          memory[key] = String(value)
+        },
+        removeItem: (key) => {
+          delete memory[key]
+        },
+      }
   const window = {
     addEventListener(type, handler) {
       if (!listeners.has(type)) listeners.set(type, [])
@@ -117,16 +141,7 @@ export function createHarness(options = {}) {
       frames.push(callback)
       return 0
     },
-    localStorage: {
-      getItem: (key) =>
-        Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : null,
-      setItem: (key, value) => {
-        memory[key] = String(value)
-      },
-      removeItem: (key) => {
-        delete memory[key]
-      },
-    },
+    localStorage: localStore,
   }
 
   if (options.noAnimationFrame) {
@@ -153,8 +168,6 @@ export function createHarness(options = {}) {
   const sandbox = {
     document,
     window,
-    MutationObserver,
-    requestAnimationFrame: window.requestAnimationFrame,
     JSON,
     Math,
     Object,
@@ -163,10 +176,32 @@ export function createHarness(options = {}) {
     Number,
     Infinity,
     console,
-    GM_getValue,
-    GM_setValue,
-    Promise,
   }
+
+  if (options.noMutationObserver !== true) {
+    sandbox.MutationObserver = MutationObserver
+  }
+  if (options.noPromise !== true) {
+    sandbox.Promise = Promise
+  }
+  if (options.noGm !== true && options.gmAsync !== true) {
+    sandbox.GM_getValue = GM_getValue
+    sandbox.GM_setValue = GM_setValue
+  }
+  if (options.gmAsync === true) {
+    sandbox.GM = {
+      getValue: (key, fallback) =>
+        Promise.resolve(
+          Object.prototype.hasOwnProperty.call(gm, key) ? gm[key] : fallback
+        ),
+      setValue: (key, value) => {
+        gm[key] = value
+        return Promise.resolve()
+      },
+    }
+  }
+
+  sandbox.requestAnimationFrame = window.requestAnimationFrame
 
   vm.runInNewContext(userscriptSource, sandbox, { filename: userscriptPath })
 
@@ -174,6 +209,9 @@ export function createHarness(options = {}) {
     document,
     body,
     element: (tag = "div") => new FakeElement(tag),
+    injectAgain() {
+      vm.runInNewContext(userscriptSource, sandbox, { filename: userscriptPath })
+    },
 
     /** Build a grid container with the ids and classes Sheets exposes. */
     grid(left = 100, top = 200, width = 800, height = 400) {
@@ -231,6 +269,14 @@ export function createHarness(options = {}) {
 
     storage: memory,
     gm,
+
+    descendants: () => body.descendants(),
+
+    findByAria(label) {
+      return body
+        .descendants()
+        .find((node) => node.attrs["aria-label"] === label)
+    },
 
     /** Only the bands currently drawn, as plain numbers. */
     visibleBands() {

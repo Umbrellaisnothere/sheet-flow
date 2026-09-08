@@ -11,7 +11,7 @@
     "start": "next start --port 43173 --hostname 0.0.0.0",
     "lint": "eslint",
     "sync": "node scripts/sync-assets.mjs",
-    "test": "node --experimental-strip-types --test src/lib/sheet-engine.test.ts apps-script/no-globals.test.mjs apps-script/code.test.mjs userscript/overlay.test.mjs"
+    "test": "node --experimental-strip-types --test src/lib/sheet-engine.test.ts apps-script/no-globals.test.mjs apps-script/code.test.mjs userscript/overlay.test.mjs userscript/compat-security.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

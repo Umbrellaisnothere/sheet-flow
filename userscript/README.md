@@ -67,3 +67,12 @@ Colour changes do not require an update. You only paste a new `sheets-focus-cell
 - The tab URL starts with `https://docs.google.com/spreadsheets/`.
 - You reloaded the spreadsheet after the first save.
 - The Android and iOS Sheets **apps** cannot run this. Use Sheets in the mobile browser with Tampermonkey if you need it on a phone.
+
+## 7. What the automated tests cover
+
+From the repo root, `npm test` loads the real `sheets-focus-cell.user.js` (not a mock of it) and checks:
+
+- **Compatibility** — HTTPS-only `@match`, storage-only `@grant`, no GM API (unpacked extension), async `GM.getValue` (Violentmonkey), private-mode storage, missing `Promise` / `MutationObserver`, and two copies of the script not stacking overlays.
+- **Security** — no `eval`, `fetch`, or `innerHTML`; hex XSS strings rejected; corrupt Tampermonkey storage ignored; the overlay cannot steal clicks.
+- **Functionality** — hex with or without `#`, opacity clamped, colour remembered after a reload, AltGr not toggling the highlight.
+- **User-friendliness** — aria labels on the chip, hex field, and opacity bar; this README mentioning Allow User Scripts, hex, and Edge.
