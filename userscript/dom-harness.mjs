@@ -31,6 +31,22 @@ class FakeElement {
     this.value = ""
     this.title = ""
     this.textContent = ""
+    this.listeners = {}
+  }
+
+  addEventListener(type, handler) {
+    if (!this.listeners[type]) this.listeners[type] = []
+    this.listeners[type].push(handler)
+  }
+
+  click() {
+    const event = {
+      preventDefault() {},
+      stopPropagation() {},
+      target: this,
+    }
+    for (const handler of this.listeners.mousedown || []) handler(event)
+    for (const handler of this.listeners.click || []) handler(event)
   }
 
   appendChild(child) {
@@ -49,8 +65,6 @@ class FakeElement {
     const value = this[name]
     return value == null ? null : String(value)
   }
-
-  addEventListener() {}
 
   at(left, top, width, height) {
     this.box = { left, top, width, height }
@@ -142,6 +156,12 @@ export function createHarness(options = {}) {
       return 0
     },
     localStorage: localStore,
+    innerWidth: 1024,
+    innerHeight: 768,
+    navigator: {
+      userAgent: options.userAgent || "Test",
+      platform: options.platform || "Linux",
+    },
   }
 
   if (options.noAnimationFrame) {
@@ -168,6 +188,7 @@ export function createHarness(options = {}) {
   const sandbox = {
     document,
     window,
+    navigator: window.navigator,
     JSON,
     Math,
     Object,

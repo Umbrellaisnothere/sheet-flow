@@ -69,10 +69,11 @@ export function ScriptPanel({ scriptSource }: { scriptSource: string }) {
             Step 2
           </p>
           <p className="mt-1">
-            Reload the spreadsheet. Do <strong>not</strong> turn on Focus Cell
-            in this menu if you installed the userscript — that path is the
-            slow one. If an older version left highlight rules behind, run{" "}
-            <strong>Disable Focus Cell on this sheet</strong> once.
+            Reload the spreadsheet. The menu is now <strong>Focus Cell</strong>.
+            Do <strong>not</strong> choose Enable highlight if you installed the
+            userscript — that path is the slow one. If an older version left
+            highlight rules behind, run{" "}
+            <strong>Disable highlight on this sheet</strong> once.
           </p>
         </li>
         <li className="rounded-lg border bg-muted/30 p-3">

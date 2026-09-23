@@ -49,6 +49,7 @@ import {
 } from "@/lib/sample-data"
 import { ScriptPanel } from "@/components/script-panel"
 import { SheetGrid } from "@/components/sheet-grid"
+import { StartHere } from "@/components/start-here"
 
 export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
   const [rows, setRows] = useState(createSampleRows)
@@ -199,18 +200,17 @@ export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
             <div className="flex items-center gap-2">
               <Crosshair className="size-5" />
               <p className="text-xs font-medium tracking-wide uppercase opacity-80">
-                Google Sheets add-on
+                For Google Sheets
               </p>
             </div>
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
               Focus Cell
             </h1>
             <p className="max-w-xl text-sm text-white/85">
-              Excel highlights the active row and column, then clears them when
-              you move. Sheets does not. This restores that in Edge, Chrome,
-              Firefox, Brave, Opera, and Safari, without rewriting the sheet on
-              every click, and moves filtered records without the leftover-selection
-              bug.
+              Excel-style row and column highlight in your browser, plus a menu
+              that moves filtered records without overwriting occupied cells.
+              This page is a demo. Install the userscript to use it on a real
+              spreadsheet.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -219,20 +219,22 @@ export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-white px-2.5 text-sm font-medium text-[#217346] hover:bg-white/90"
             >
               <Zap data-icon="inline-start" />
-              Instant crosshair
+              Install highlight
             </a>
             <a
               href="/script"
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/40 px-2.5 text-sm font-medium text-white hover:bg-white/10"
             >
               <Copy data-icon="inline-start" />
-              Get Apps Script
+              Install move
             </a>
           </div>
         </div>
       </header>
 
       <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:py-6">
+        <StartHere />
+
         <Toolbar
           focusOn={focusOn}
           onFocusChange={setFocusOn}
@@ -246,15 +248,19 @@ export function SpreadsheetApp({ scriptSource }: { scriptSource: string }) {
         />
 
         <div className="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="min-w-0 rounded-lg border border-[#d0d0d0] bg-white shadow-sm">
-            <div className="flex items-center justify-between gap-3 border-b border-[#d0d0d0] bg-[#f8f8f8] px-3 py-2">
+          <section
+            id="demo"
+            className="min-w-0 scroll-mt-4 rounded-lg border border-[#d0d0d0] bg-white shadow-sm"
+          >
+            <div className="flex flex-col gap-2 border-b border-[#d0d0d0] bg-[#f8f8f8] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="truncate text-sm font-medium">{SHEET_NAME}</span>
                 <Badge variant="secondary">{a1OfSelection(selection)}</Badge>
+                <Badge variant="outline">Demo</Badge>
               </div>
-              <p className="hidden text-xs text-muted-foreground sm:flex sm:items-center sm:gap-1">
-                <Keyboard className="size-3.5" />
-                Arrows move · Shift+arrows extend · Ctrl/⌘+M moves records
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Keyboard className="size-3.5 shrink-0" />
+                Arrows move · Shift extends · Ctrl/⌘+M moves records
               </p>
             </div>
             <SheetGrid
@@ -447,28 +453,27 @@ function HowItWorks({
 }) {
   return (
     <div className="rounded-lg border border-[#d0d0d0] bg-white p-4 shadow-sm">
-      <h2 className="font-heading text-base font-medium">Why the Apps Script highlight cannot be instant</h2>
+      <h2 className="font-heading text-base font-medium">What to try on this demo</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Every click in Sheets has to travel to Google and back before a script
-        can paint anything. That round trip is the delay. This playground, and
-        the userscript you install in Edge, Chrome, Firefox, or Safari, draw
-        the crosshair in the browser instead. Paste Code.gs only for Move
-        Visible Records.
+        This grid behaves like the userscript, not like Apps Script. Clicks
+        stay in the browser. Use Code.gs only for Move Visible Records in a
+        real spreadsheet.
       </p>
       <ol className="mt-3 space-y-2 text-sm">
         <li>
-          <span className="font-medium">1. Click around the grid.</span>{" "}
+          <span className="font-medium">1. Click a cell.</span>{" "}
           {focusOn
-            ? "Only the active row and column stay highlighted."
-            : "Turn Focus Cell on to see the Excel crosshair."}
+            ? "The green row and column follow. That is the highlight you get in Sheets after you install the userscript."
+            : "Turn Focus Cell on to see the Excel-style crosshair."}
         </li>
         <li>
-          <span className="font-medium">2. Filter is already Ready.</span> Hold
-          and Shipped rows are hidden, the same as a Sheets filter.
+          <span className="font-medium">2. The filter is already Ready.</span>{" "}
+          Hold and Shipped rows stay hidden, the same as a Sheets filter.
         </li>
         <li>
-          <span className="font-medium">3. Selection starts on D2:D17</span>{" "}
-          (Pick location). Move those visible values into E (Pack location).
+          <span className="font-medium">3. D2:D17 is selected</span> (Pick
+          location). Press Ctrl/⌘+M or Move visible records to send those into
+          E (Pack location).
         </li>
       </ol>
       {lastMove ? (

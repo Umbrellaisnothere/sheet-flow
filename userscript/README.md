@@ -33,10 +33,13 @@ Tampermonkey should show **Focus Cell for Google Sheets** as enabled. If the hig
 
 You do **not** open the Tampermonkey editor to pick a colour or change opacity. After the script is installed, everything is on the sheet.
 
+The **round colour chip stays visible** at the bottom-right even while the spreadsheet is still loading, so a first install is not silent. The first time, a short tip sits above the chip.
+
 1. Open any Google Sheet with the script enabled.
 2. Click the **round colour chip** at the bottom-right of the grid.
-3. Pick a preset, use the colour well, **or type a hex value** such as `#217346` or `217346`. Press Enter.
+3. Pick a preset, use the colour well, **or type a hex value** such as `#217346` or `217346`. Press Enter. A bad hex flashes red and snaps back.
 4. Drag the **Opacity** bar. The thumb moves and the percentage updates (5%–50%). The highlight on the grid changes as you drag.
+5. Use **Hide highlight** in that same panel if you do not want to remember the keyboard shortcut.
 
 Hex and opacity are stored in two places so a refresh does not reset them:
 
@@ -51,7 +54,7 @@ To reset, pick the blue preset (`#1a73e8`) or type that hex.
 
 | Action | Windows / Linux | macOS | Firefox |
 | --- | --- | --- | --- |
-| Show / hide the highlight | `Ctrl+Shift+H` | `Cmd+Shift+H` | `Ctrl+Shift+Period` (History owns `Ctrl+Shift+H`) |
+| Show / hide the highlight | `Ctrl+Shift+H` or **Hide highlight** on the chip | `Cmd+Shift+H` | `Ctrl+Shift+Period` (History owns `Ctrl+Shift+H`) |
 | Close the colour panel | `Escape` | `Escape` | `Escape` |
 
 Whole-row and whole-column picks add no extra band: Sheets already tints those edge to edge.

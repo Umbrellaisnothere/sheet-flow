@@ -1,8 +1,9 @@
 /**
- * Excel Tools for Google Sheets
+ * Focus Cell for Google Sheets
  *
  * Paste over Code.gs, Save, reload, then:
- * Excel Tools → Enable Focus Cell on this sheet
+ * Focus Cell → Move Visible Records…
+ * Focus Cell → Enable highlight on this sheet (slow) is optional.
  *
  * Read this before blaming the code for the delay.
  *
@@ -24,9 +25,9 @@
 
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu("Excel Tools")
-    .addItem("Enable Focus Cell on this sheet", "enableFocusCell")
-    .addItem("Disable Focus Cell on this sheet", "disableFocusCell")
+    .createMenu("Focus Cell")
+    .addItem("Enable highlight on this sheet (slow)", "enableFocusCell")
+    .addItem("Disable highlight on this sheet", "disableFocusCell")
     .addSeparator()
     .addItem("Move Visible Records…", "moveVisibleRecords")
     .addToUi();
@@ -104,8 +105,8 @@ function enableFocusCell() {
     moveFocusRule_(sheet, sheet.getActiveRange() || sheet.getRange(1, 1));
   } catch (err5) {}
   ui.alert(
-    "Focus Cell is on for \"" + sheet.getName() + "\"",
-    "The highlight is now one conditional-format rule that moves with your selection. No cell values are written, so the sheet does not recalculate, and your fill colours are never overwritten.\n\nThis still waits on Google's onSelectionChange trigger, which takes a second or two per click and cannot be made instant. For a crosshair with no delay at all, install the browser userscript from this project and turn this off.",
+    "Highlight is on for \"" + sheet.getName() + "\"",
+    "The yellow crosshair will follow your click after a 1–3 second delay. Your fill colours are never overwritten.\n\nFor instant highlight, install the browser userscript and choose Disable highlight on this sheet.",
     ui.ButtonSet.OK
   );
 }
@@ -128,7 +129,7 @@ function disableFocusCell() {
   } catch (err4) {}
   rememberFocusOn_(sid, false);
   SpreadsheetApp.getUi().alert(
-    "Focus Cell is off for \"" + sheet.getName() + "\"."
+    "Highlight is off for \"" + sheet.getName() + "\". Move Visible Records still works."
   );
 }
 
@@ -138,6 +139,24 @@ function focusOnKey_(sid) {
 
 function windowKey_(sid) {
   return "FC_w_" + sid;
+}
+
+function lastDestKey_() {
+  return "FC_move_dest";
+}
+
+function readLastDest_() {
+  try {
+    return PropertiesService.getDocumentProperties().getProperty(lastDestKey_()) || "";
+  } catch (err) {
+    return "";
+  }
+}
+
+function rememberLastDest_(letter) {
+  try {
+    PropertiesService.getDocumentProperties().setProperty(lastDestKey_(), letter);
+  } catch (err) {}
 }
 
 function isFocusOn_(sid) {
@@ -346,16 +365,28 @@ function moveVisibleRecords() {
     return;
   }
   if (sourceRange.getNumColumns() !== 1) {
-    ui.alert("Please select records from only one column.");
+    ui.alert("Select cells in only one column, then try again.");
     return;
   }
 
   var sourceColumn = sourceRange.getColumn();
   var startRow = sourceRange.getRow();
   var numRows = sourceRange.getNumRows();
+  var sourceLetter = columnNumberToLetter_(sourceColumn);
+  var suggested = columnNumberToLetter_(sourceColumn + 1);
+  var lastDest = readLastDest_();
+  if (lastDest && columnLetterToNumber(lastDest) === sourceColumn) {
+    lastDest = "";
+  }
+  var reuse = lastDest || suggested;
   var response = ui.prompt(
     "Move Visible Records",
-    "Enter the destination column on this sheet (e.g. B, C, D):",
+    "Source is " +
+      sourceLetter +
+      ". Type the destination column (e.g. " +
+      (suggested || "E") +
+      "). Hidden rows stay put. Occupied cells are never overwritten.\n\n" +
+      (reuse ? "Leave blank to use " + reuse + "." : ""),
     ui.ButtonSet.OK_CANCEL
   );
   if (response.getSelectedButton() !== ui.Button.OK) {
@@ -365,6 +396,9 @@ function moveVisibleRecords() {
   var destinationLetter = String(response.getResponseText() || "")
     .trim()
     .toUpperCase();
+  if (!destinationLetter && reuse) {
+    destinationLetter = reuse;
+  }
   var destinationColumn = columnLetterToNumber(destinationLetter);
   if (!destinationColumn) {
     ui.alert("Invalid column. Please enter a column such as B, C, or D.");
@@ -439,18 +473,25 @@ function moveVisibleRecords() {
     moved++;
   }
 
+  rememberLastDest_(destinationLetter);
   if (moved > 0) {
     destinationRange.setValues(nextDest);
     sourceRange.offset(0, 0, numRows, 1).setValues(nextSource);
   }
   sheet.setActiveRange(destinationRange);
   ui.alert(
-    "Finished on \"" +
+    "Moved " +
+      moved +
+      " on \"" +
       sheet.getName() +
-      "\"!\n\nMoved: " +
+      "\"",
+    "Moved: " +
       moved +
       "\nSkipped because destination already had text: " +
-      skipped
+      skipped +
+      "\nNext time, leave the box blank to reuse " +
+      destinationLetter +
+      "."
   );
 }
 

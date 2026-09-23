@@ -38,7 +38,9 @@ export default function InstantPage() {
             <code>.active-cell-border</code> elements around the current cell,
             and <code>.selection</code> rectangles for wider picks. The exact
             file you install is running on this page against them, so the
-            highlight you see here is the highlight you get in Sheets.
+            highlight you see here is the highlight you get in Sheets. Click
+            the colour chip in the corner — a first-run tip explains it, and
+            Hide highlight is in that panel.
           </p>
         </header>
 

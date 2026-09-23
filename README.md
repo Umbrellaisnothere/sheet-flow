@@ -87,7 +87,7 @@ This one belongs in Apps Script: it is a deliberate menu action, so a second of 
 
 1. In the spreadsheet you are using, open **Extensions → Apps Script**.
 2. Replace **the entire** `Code.gs` with [`apps-script/Code.gs`](apps-script/Code.gs) and Save.
-3. Reload the spreadsheet, filter a column, select **one** source column, then **Excel Tools → Move Visible Records…**.
+3. Reload the spreadsheet, filter a column, select **one** source column, then **Focus Cell → Move Visible Records…**. Leave the destination box blank to reuse the last column you used.
 
 It reads the source and destination once, including formulas so `=A2` stays `=A2` instead of collapsing to a number, walks the arrays in memory, then writes each column once and skips the writes entirely if nothing moved. Rows hidden by a filter are skipped, occupied destination cells (values or formulas) are left alone, and the selection jumps to the destination so the emptied source is not left selected. The common version of this function calls `setValue` once per row, which is hundreds of round trips.
 
@@ -99,9 +99,9 @@ npm run build
 npm start
 ```
 
-- `/` — spreadsheet playground with the crosshair, a filter, and the move
-- `/instant` — the userscript running against a mock of the Sheets DOM
-- `/script` — copy or download `Code.gs`
+- `/` — start-here install path plus the spreadsheet playground
+- `/instant` — Tampermonkey install and the userscript running against a mock of the Sheets DOM
+- `/script` — copy or download `Code.gs`, with the Focus Cell menu steps
 
 The mock publishes the same three hooks the real grid does (`#waffle-grid-container`, four `.active-cell-border` elements, `.selection` rectangles), and the page loads the exact file you install, so the behaviour on that page is the behaviour you get in Sheets.
 

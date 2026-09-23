@@ -282,4 +282,68 @@ test("ux: Tampermonkey README covers Allow User Scripts, hex, and refresh", () =
   assert.match(readme, /GM_setValue/)
   assert.match(readme, /Ctrl\+Shift\+H/)
   assert.match(readme, /edge:\/\/extensions|Tampermonkey for Edge/)
+  assert.match(readme, /Hide highlight/)
+  assert.match(readme, /chip stays visible|colour chip/i)
+})
+
+test("ux: a first-run tip explains the chip, then opening the panel dismisses it", () => {
+  const h = createHarness()
+  paint(h)
+  const tip = h.descendants().find((node) => node.id === "sheets-focus-cell-tip")
+  assert.ok(tip)
+  assert.equal(tip.style.display, "block")
+  assert.match(tip.textContent, /chip to change colour/i)
+  h.findByAria("Highlight colour").click()
+  assert.equal(tip.style.display, "none")
+  const saved = JSON.parse(h.gm["sheets-focus-cell"])
+  assert.equal(saved.seenTip, true)
+})
+
+test("ux: returning visitors do not see the first-run tip", () => {
+  const h = createHarness({
+    gm: {
+      "sheets-focus-cell": JSON.stringify({
+        color: "#1a73e8",
+        opacity: "0.1",
+        seenTip: true,
+      }),
+    },
+  })
+  paint(h)
+  const tip = h.descendants().find((node) => node.id === "sheets-focus-cell-tip")
+  assert.equal(tip.style.display, "none")
+})
+
+test("ux: Hide highlight turns bands off without needing the keyboard", () => {
+  const h = createHarness()
+  paint(h)
+  assert.equal(h.visibleBands().length, 2)
+  h.findByAria("Hide highlight").click()
+  assert.deepEqual(h.visibleBands(), [])
+  assert.equal(h.findByAria("Show highlight").textContent, "Show highlight")
+  h.findByAria("Show highlight").click()
+  assert.equal(h.visibleBands().length, 2)
+})
+
+test("ux: the colour chip stays on screen before the grid paints", () => {
+  const h = createHarness()
+  h.dispatch("click")
+  h.flush()
+  const panel = h.panel()
+  assert.ok(panel)
+  assert.equal(panel.style.display, "flex")
+  assert.deepEqual(h.visibleBands(), [])
+  assert.match(h.findByAria("Highlight colour").title, /grid appears|sheet tab/i)
+})
+
+test("ux: Firefox users are told to use Ctrl+Shift+Period", () => {
+  const h = createHarness({ userAgent: "Mozilla/5.0 Firefox/128.0" })
+  paint(h)
+  h.findByAria("Highlight colour").click()
+  const shortcut = h
+    .panel()
+    .childNodes[0].childNodes.find((node) =>
+      String(node.textContent).includes("Hide shortcut")
+    )
+  assert.match(shortcut.textContent, /Ctrl\+Shift\+Period/)
 })

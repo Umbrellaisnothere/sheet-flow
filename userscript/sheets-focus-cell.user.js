@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Focus Cell for Google Sheets
 // @namespace    https://github.com/sheets-focus-cell
-// @version      1.4.0
+// @version      1.5.0
 // @description  Excel-style active row and column highlight in Google Sheets, drawn in the browser so there is no Apps Script delay.
 // @author       sheets-focus-cell
 // @match        https://docs.google.com/spreadsheets/*
@@ -61,6 +61,7 @@
     opacity: "0.1",
     row: true,
     column: true,
+    seenTip: false,
   };
 
   // Sheets renders the grid to canvas, but keeps the selection outline as real
@@ -80,6 +81,9 @@
   var opacityThumb = document.createElement("div");
   var opacityValue = document.createElement("span");
   var tray = document.createElement("div");
+  var toggleBtn = document.createElement("button");
+  var shortcutLine = document.createElement("div");
+  var tip = document.createElement("div");
   var presetButtons = [];
   var bands = [];
   var enabled = true;
@@ -152,6 +156,9 @@
       if (opacity) {
         CONFIG.opacity = opacity;
       }
+      if (saved && saved.seenTip === true) {
+        CONFIG.seenTip = true;
+      }
     } catch {
       // Corrupt storage is ignored; defaults still work.
     }
@@ -161,6 +168,7 @@
     var payload = JSON.stringify({
       color: CONFIG.color,
       opacity: CONFIG.opacity,
+      seenTip: CONFIG.seenTip === true,
     });
     try {
       if (typeof GM_setValue === "function") {
@@ -270,13 +278,79 @@
     }
   }
 
+  function navInfo() {
+    var nav = {};
+    try {
+      nav =
+        (typeof navigator !== "undefined" && navigator) ||
+        (window && window.navigator) ||
+        {};
+    } catch (err) {
+      nav = {};
+    }
+    return {
+      ua: String(nav.userAgent || ""),
+      platform: String(nav.platform || ""),
+    };
+  }
+
+  function shortcutLabel() {
+    var info = navInfo();
+    var mac = /Mac|iPhone|iPad/.test(info.platform) || /Mac OS/.test(info.ua);
+    var firefox = /Firefox\//.test(info.ua);
+    if (firefox) {
+      return mac ? "Cmd+Shift+Period" : "Ctrl+Shift+Period";
+    }
+    return mac ? "Cmd+Shift+H" : "Ctrl+Shift+H";
+  }
+
+  function gridBox() {
+    var node = grid();
+    var base = node && node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+    if (base && base.width && base.height) {
+      return base;
+    }
+    return {
+      left: 0,
+      top: 0,
+      width: window.innerWidth || 1024,
+      height: window.innerHeight || 768,
+    };
+  }
+
+  function dismissTip() {
+    if (CONFIG.seenTip) {
+      return;
+    }
+    CONFIG.seenTip = true;
+    saveConfig();
+  }
+
+  function chipTitle() {
+    var node = grid();
+    var ready = node && node.getBoundingClientRect && node.getBoundingClientRect().width;
+    if (!ready) {
+      return "Focus Cell colour chip. Open a sheet tab — the highlight attaches when the grid appears.";
+    }
+    if (!enabled) {
+      return "Highlight colour is hidden. Click for options, or press " + shortcutLabel() + " to show it.";
+    }
+    return panelOpen
+      ? "Close highlight colour"
+      : "Highlight colour — click to change, no Tampermonkey edit needed. " +
+          shortcutLabel() +
+          " hides the bands.";
+  }
+
   function commitHex() {
     var typed = hexInput.value;
     var color = normalizeColor(typed);
     if (color) {
+      hexInput.style.borderColor = "#dadce0";
       applyConfig({ color: color });
       return;
     }
+    hexInput.style.borderColor = "#d93025";
     hexInput.value = CONFIG.color;
   }
 
@@ -294,6 +368,7 @@
 
   function syncPanel() {
     swatch.style.backgroundColor = CONFIG.color;
+    swatch.style.opacity = enabled ? "1" : "0.45";
     picker.value = CONFIG.color;
     if (document.activeElement !== hexInput) {
       hexInput.value = CONFIG.color;
@@ -301,9 +376,17 @@
     opacityThumb.style.left = thumbLeft();
     opacityValue.textContent = Math.round(Number(CONFIG.opacity) * 100) + "%";
     tray.style.display = panelOpen ? "flex" : "none";
-    swatch.title = panelOpen
-      ? "Close highlight colour"
-      : "Highlight colour — click to change, no Tampermonkey edit needed";
+    swatch.title = chipTitle();
+    swatch.setAttribute("aria-expanded", panelOpen ? "true" : "false");
+    toggleBtn.textContent = enabled ? "Hide highlight" : "Show highlight";
+    toggleBtn.setAttribute(
+      "aria-label",
+      enabled ? "Hide highlight" : "Show highlight"
+    );
+    shortcutLine.textContent = "Hide shortcut: " + shortcutLabel();
+    if (tip && tip.style) {
+      tip.style.display = !CONFIG.seenTip && !panelOpen ? "block" : "none";
+    }
     var i;
     for (i = 0; i < presetButtons.length; i++) {
       presetButtons[i].style.border =
@@ -326,22 +409,23 @@
 
   function setPanelOpen(open) {
     panelOpen = open;
+    if (open) {
+      dismissTip();
+    }
     syncPanel();
-    var node = grid();
-    var base = node ? node.getBoundingClientRect() : null;
-    placePanel(base && base.width && base.height ? base : null);
+    placePanel(gridBox());
   }
 
   function placePanel(base) {
     if (!panel.parentNode && document.body) {
       document.body.appendChild(panel);
     }
-    if (!base) {
-      panel.style.display = "none";
-      return;
+    if (!base || !base.width || !base.height) {
+      base = gridBox();
     }
-    var width = panelOpen ? 252 : 36;
-    var height = panelOpen ? 188 : 36;
+    var tipVisible = !CONFIG.seenTip && !panelOpen;
+    var width = panelOpen ? 260 : 36;
+    var height = panelOpen ? 252 : tipVisible ? 92 : 36;
     Object.assign(panel.style, {
       display: "flex",
       position: "fixed",
@@ -551,12 +635,61 @@
     hint.textContent =
       "Hex and opacity are saved in this browser (and Tampermonkey). Refresh keeps them.";
 
+    toggleBtn.type = "button";
+    toggleBtn.setAttribute("aria-label", "Hide highlight");
+    toggleBtn.textContent = "Hide highlight";
+    Object.assign(toggleBtn.style, {
+      width: "100%",
+      boxSizing: "border-box",
+      margin: "0",
+      padding: "6px 8px",
+      border: "1px solid #dadce0",
+      borderRadius: "4px",
+      background: "#f8f9fa",
+      color: "#202124",
+      fontSize: "12px",
+      cursor: "pointer",
+    });
+    toggleBtn.addEventListener("click", function (event) {
+      halt(event);
+      enabled = !enabled;
+      syncPanel();
+      render();
+    });
+    toggleBtn.addEventListener("mousedown", halt);
+
+    Object.assign(shortcutLine.style, {
+      fontSize: "10px",
+      color: "#80868b",
+      lineHeight: "1.35",
+    });
+    shortcutLine.textContent = "Hide shortcut: " + shortcutLabel();
+
+    tip.id = "sheets-focus-cell-tip";
+    tip.setAttribute("aria-label", "How to change the highlight colour");
+    Object.assign(tip.style, {
+      display: "none",
+      maxWidth: "220px",
+      padding: "8px 10px",
+      background: "#202124",
+      color: "#fff",
+      fontSize: "11px",
+      lineHeight: "1.4",
+      borderRadius: "8px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.28)",
+    });
+    tip.textContent =
+      "Click the chip to change colour. You never edit Tampermonkey for this.";
+
     tray.appendChild(label);
     tray.appendChild(row);
     tray.appendChild(hexInput);
     tray.appendChild(opacityRow);
+    tray.appendChild(toggleBtn);
+    tray.appendChild(shortcutLine);
     tray.appendChild(hint);
     panel.appendChild(tray);
+    panel.appendChild(tip);
     panel.appendChild(swatch);
     syncPanel();
   }
@@ -745,13 +878,14 @@
 
     var node = grid();
     var base = node ? node.getBoundingClientRect() : null;
-    // A grid with no size means the spreadsheet has not painted yet.
-    if (!base || !base.width || !base.height) {
+    var ready = base && base.width && base.height;
+    // Keep the colour chip on screen even before the grid paints, so a first
+    // install is not silent on the Sheets start page or while the tab loads.
+    placePanel(ready ? base : gridBox());
+    if (!ready) {
       hide();
-      placePanel(null);
       return;
     }
-    placePanel(base);
 
     if (!enabled) {
       hide();
@@ -869,6 +1003,7 @@
     if (isToggleShortcut(event)) {
       enabled = !enabled;
       halt(event);
+      syncPanel();
       render();
       return;
     }

@@ -19,7 +19,7 @@ test("every menu item points at a function that exists", () => {
   const referenced = [...codeSource.matchAll(/addItem\([^,]+,\s*"([^"]+)"/g)].map(
     (match) => match[1]
   )
-  assert.ok(referenced.length >= 3, "expected the Excel Tools menu items")
+  assert.ok(referenced.length >= 3, "expected the Focus Cell menu items")
   for (const name of referenced) {
     assert.match(
       codeSource,
@@ -270,6 +270,25 @@ test("move refuses a destination column the sheet does not have", () => {
   })
   const alerts = runMove(script, sheet, "Z")
   assert.match(String(alerts[0]), /does not exist/)
+})
+
+test("move reuses the last destination when the prompt is left blank", () => {
+  const script = loadScript()
+  script.store.set("FC_move_dest", "F")
+  const sheet = fakeSheet({
+    lastRow: 2,
+    values: {
+      "1,1,1,1": [["SKU-1"]],
+      "1,6,1,1": [[""]],
+    },
+    activeRange: {
+      ...selectionOf(1, 1, 1, 1),
+      offset: (r, c, rows, cols) => sheet.getRange(1 + r, 1 + c, rows, cols),
+    },
+  })
+  const alerts = runMove(script, sheet, "   ")
+  assert.equal(JSON.stringify(sheet.values["1,6,1,1"]), JSON.stringify([["SKU-1"]]))
+  assert.match(String(alerts[0]), /Moved 1/)
 })
 
 test("move on an empty sheet does not invent a row to write", () => {
