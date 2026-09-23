@@ -279,15 +279,10 @@
   }
 
   function navInfo() {
-    var nav = {};
-    try {
-      nav =
-        (typeof navigator !== "undefined" && navigator) ||
-        (window && window.navigator) ||
-        {};
-    } catch (err) {
-      nav = {};
-    }
+    var nav =
+      (typeof navigator !== "undefined" && navigator) ||
+      (window && window.navigator) ||
+      {};
     return {
       ua: String(nav.userAgent || ""),
       platform: String(nav.platform || ""),
