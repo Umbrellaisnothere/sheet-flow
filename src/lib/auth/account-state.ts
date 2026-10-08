@@ -6,12 +6,12 @@ import { getAccountStore } from "../settings/get-store.ts"
 import type { AccountState, SettingsRecord } from "../settings/store.ts"
 
 export async function readAccountState(): Promise<AccountState> {
+  const jar = await cookies()
   const env = readAuthEnv()
   const store = getAccountStore()
   if (!envIsConfigured(env, Boolean(store))) {
     return { configured: false, email: null, settings: null }
   }
-  const jar = await cookies()
   const session = await unsealSession(
     env.sessionSecret,
     jar.get(SESSION_COOKIE)?.value
