@@ -1,8 +1,35 @@
 # Optional Google-account settings (architecture)
 
-Status: **Phase 1 — documentation only.** Nothing in this file is implemented. The highlighter, colour panel, Tampermonkey grants, Apps Script, and security tests must keep working exactly as they do today.
+Status: **Phase 2 — website backend implemented.** Google OAuth, application sessions, Postgres persistence, and `/api/settings` exist on the website. The Tampermonkey highlighter is still local-only and unchanged. Do not add `GM_xmlhttpRequest` or `@connect` until a later phase.
 
-This document is the Phase 1 deliverable: verified current architecture, proposed backend/OAuth design, API contract, security model, Google Cloud checklist, privacy notes, future tests, and the Phase 2 file list.
+Phase 1 remains the design record. This section records what Phase 2 actually shipped.
+
+### Phase 2 implementation notes
+
+- **Database:** two tables, `users` and `highlight_settings`, keyed by Google OIDC `sub` (`google_sub`). Email is display-only and not unique. Schema: [`docs/schema.sql`](schema.sql). Apply with `npm run db:migrate` (requires `DATABASE_URL`). Non-destructive; `CREATE TABLE IF NOT EXISTS` only.
+- **Store:** `postgres` (postgres.js) when `DATABASE_URL` is set. Tests use an in-memory store. Missing credentials return **503** `not_configured` rather than inventing a production memory database.
+- **OAuth:** authorization code + PKCE S256, scopes `openid email profile` only. ID token verified with Google JWKS (`iss`, `aud`, `exp`, `nonce`). Google access tokens are discarded. Client secret stays server-side.
+- **Session:** encrypted JWE cookie `fc_session` (`dir` + `A256GCM` via `jose`), HttpOnly, SameSite=Lax, Secure in production / HTTPS, 7-day lifetime. Payload: `{ sub, email, exp }`. Short-lived `fc_oauth` cookie holds `state`, `nonce`, and `code_verifier`.
+- **Optimistic concurrency:** `PUT /api/settings` accepts optional `baseUpdatedAt`. Mismatch → **409** with the current row. The server always stamps `updatedAt` in UTC ISO-8601.
+- **Website UI:** optional “Sign in with Google” in the header. No login wall. Cloud colour/opacity on the site are independent of the userscript chip.
+- **Not implemented:** Tampermonkey network access, cross-device highlighter sync, extension `chrome.identity`, production deploy, rate limiting.
+
+### Environment variables
+
+Copy [`.env.example`](../.env.example) to `.env.local`. **Server-only** (never `NEXT_PUBLIC_`):
+
+| Name | Purpose |
+| --- | --- |
+| `GOOGLE_CLIENT_ID` | Web OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Web OAuth client secret |
+| `GOOGLE_REDIRECT_URI` | Exact callback, e.g. `http://127.0.0.1:43173/api/auth/google/callback` |
+| `DATABASE_URL` | Postgres connection string |
+| `SESSION_SECRET` | ≥32 characters for cookie encryption |
+| `APP_ORIGIN` | Canonical origin, e.g. `http://127.0.0.1:43173` |
+
+Nothing in this list is safe to expose to the browser or the userscript.
+
+---
 
 ---
 
@@ -250,20 +277,23 @@ No `.env.example` in this phase: `.gitignore` matches `.env*`, so an example fil
 
 ## 6. Database design
 
-No user/account tables exist. Do **not** create two tables for a single settings blob.
-
-Recommended **one row per Google account**:
+Phase 2 uses **two tables** so account identity and highlight preferences stay separate, with `google_sub` as the canonical key in both (Phase 2 requirement). Email is still not unique.
 
 ```sql
--- Reference only. Not applied in Phase 1.
+-- Applied by npm run db:migrate from docs/schema.sql
+
+CREATE TABLE users (
+  google_sub TEXT PRIMARY KEY,
+  email TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE highlight_settings (
-  google_sub   TEXT PRIMARY KEY,           -- opaque OIDC subject
-  email        TEXT,                       -- display; not unique, not PK
-  color        TEXT NOT NULL,
-  opacity      TEXT NOT NULL,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  google_sub TEXT PRIMARY KEY REFERENCES users(google_sub) ON DELETE CASCADE,
+  color TEXT NOT NULL,
+  opacity TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX highlight_settings_updated_at_idx
@@ -581,7 +611,7 @@ When network grants are added, **update** `compat-security.test.mjs` to allow **
 | `docs/google-settings-architecture.md` | This document |
 | `README.md` | Pointer in the Files table only |
 
-### Phase 2 (do not create now)
+### Phase 2 (website/backend — implemented)
 
 | File | Role |
 | --- | --- |
@@ -591,15 +621,20 @@ When network grants are added, **update** `compat-security.test.mjs` to allow **
 | `src/app/api/auth/session/route.ts` | Session probe |
 | `src/app/api/settings/route.ts` | GET/PUT settings |
 | `src/lib/auth/*` | Cookie seal, ID token verify, origin checks |
-| `src/lib/settings/*` | Validation + SQL |
-| `docs/schema.sql` or a migration | Apply `highlight_settings` |
-| `.gitignore` | Add `!.env.example` |
-| `.env.example` | Names only, empty values |
-| `package.json` | e.g. `jose`, Postgres client — not Auth.js unless needed |
-| Tests | New API tests **plus** a **deliberate** compat-security update |
+| `src/lib/settings/*` | Validation + SQL + memory store for tests |
+| `docs/schema.sql` | `users` + `highlight_settings` |
+| `scripts/db-migrate.mjs` | `npm run db:migrate` |
+| `.gitignore` | `!.env.example` |
+| `.env.example` | Names only |
+| `src/components/account-bar.tsx` | Optional sign-in / cloud settings |
+| Tests | New API/auth tests; **userscript security tests unchanged** |
+
+### Later phase (not this change)
+
+| File | Role |
+| --- | --- |
 | `userscript/sheets-focus-cell.user.js` | Optional sign-in + `GM_xmlhttpRequest` **after** local paint |
 | `userscript/README.md` | How optional sync works |
-| `src/app/instant/page.tsx` / colour panel | Sign-in affordance, no wall |
 
 ### Intentionally untouched in Phase 1
 
@@ -620,12 +655,13 @@ Painting, `saveConfig` / `loadStored`, colour panel behaviour, Apps Script, `ext
 
 ---
 
-## 17. Recommended Phase 2 (do not start automatically)
+## 17. Recommended Phase 3 (do not start automatically)
 
-1. You create the Google Cloud Web client and a Postgres database; paste env values.
-2. Implement Route Handlers + session cookie + one table.
-3. Website: optional “Sign in with Google” on `/instant` (and maybe home), using links to `/api/auth/google`, session badge, no wall.
-4. Only then: userscript network grants, `@connect` one host, background GET/PUT, tests updated.
-5. Extension identity: later phase.
+Phase 2 (this repo) shipped the website foundation. **Do not connect Tampermonkey yet.**
 
-Success for Phase 1: architecture is written; **the running highlighter is unchanged.**
+1. Configure Google Cloud + Postgres locally using the checklist in §10 and `.env.local`.
+2. Verify website sign-in, session cookie, and GET/PUT `/api/settings` in a real browser (cloud-settings integration on the site only).
+3. Only then: userscript network grants, `@connect` one host, background GET/PUT, tests updated.
+4. Extension identity: later still.
+
+Success for Phase 2: the website has a secure, testable Google-account backend; **the running highlighter is unchanged.**

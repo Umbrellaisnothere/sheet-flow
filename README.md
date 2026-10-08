@@ -99,6 +99,18 @@ npm run build
 npm start
 ```
 
+The highlighter demo does not need Google or Postgres. Optional **website** sign-in (account-backed colour/opacity on this site only) needs local configuration:
+
+1. Copy `.env.example` to `.env.local` and fill the server-only variables. Never prefix them with `NEXT_PUBLIC_`.
+2. Create a Google Cloud **Web** OAuth client. Authorised origin `http://127.0.0.1:43173`. Redirect URI `http://127.0.0.1:43173/api/auth/google/callback`. Scopes: `openid`, `email`, `profile`.
+3. Provision Postgres (Neon, Vercel Postgres, or local) and set `DATABASE_URL`.
+4. Apply the schema: `npm run db:migrate`
+5. Generate a 32+ character `SESSION_SECRET`. Set `APP_ORIGIN=http://127.0.0.1:43173`.
+
+`npm run dev` serves `http://127.0.0.1:43173`. Sign in with Google is in the header. Signing out never blocks the playground or `/instant`. The Tampermonkey script still stores colour locally; it does not call this API yet.
+
+Details: [`docs/google-settings-architecture.md`](docs/google-settings-architecture.md).
+
 - `/` — start-here install path plus the spreadsheet playground
 - `/instant` — Tampermonkey install and the userscript running against a mock of the Sheets DOM
 - `/script` — copy or download `Code.gs`, with the Focus Cell menu steps
@@ -133,7 +145,9 @@ Requires Node 22.6 or newer, for `--experimental-strip-types`.
 | `userscript/compat-security.test.mjs` | Tampermonkey compatibility, security, and usability checks |
 | `apps-script/script-harness.mjs` | Stand-in Sheets services `Code.gs` is tested against |
 | `scripts/sync-assets.mjs` | Copies sources into `public/` and `extension/` |
-| `docs/google-settings-architecture.md` | Phase 1 design for optional Google-account colour/opacity sync (not implemented) |
+| `docs/google-settings-architecture.md` | Google-account settings architecture; Phase 2 website backend is implemented |
+| `docs/schema.sql` | Postgres tables for users and highlight settings |
+| `.env.example` | Server-only environment variable names |
 
 ## License
 

@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     "*.cursor.com",
     "*.dev.cursor.com",
   ],
+  serverExternalPackages: ["postgres"],
   devIndicators: false,
 };
 
