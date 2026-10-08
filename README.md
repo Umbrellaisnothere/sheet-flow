@@ -133,6 +133,7 @@ Requires Node 22.6 or newer, for `--experimental-strip-types`.
 | `userscript/compat-security.test.mjs` | Tampermonkey compatibility, security, and usability checks |
 | `apps-script/script-harness.mjs` | Stand-in Sheets services `Code.gs` is tested against |
 | `scripts/sync-assets.mjs` | Copies sources into `public/` and `extension/` |
+| `docs/google-settings-architecture.md` | Phase 1 design for optional Google-account colour/opacity sync (not implemented) |
 
 ## License
 
