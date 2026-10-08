@@ -81,18 +81,18 @@ async function signIn(
   return { start, callback, cookies: cookiesFromResponse(callback) }
 }
 
-test("live postgres: schema has users and highlight_settings", { skip: !live }, async () => {
+test("live postgres: schema has users, highlight_settings, and oauth_pending", { skip: !live }, async () => {
   const sql = postgres(databaseUrl, { max: 1 })
   try {
     const rows = await sql<{ tablename: string }[]>`
       SELECT tablename FROM pg_tables
       WHERE schemaname = 'public'
-        AND tablename IN ('users', 'highlight_settings')
+        AND tablename IN ('users', 'highlight_settings', 'oauth_pending')
       ORDER BY tablename
     `
     assert.deepEqual(
       rows.map((row) => row.tablename),
-      ["highlight_settings", "users"]
+      ["highlight_settings", "oauth_pending", "users"]
     )
   } finally {
     await sql.end({ timeout: 5 })
@@ -343,6 +343,34 @@ test("live postgres: logout invalidates the application session", { skip: !live 
     { env: env(), store }
   )
   assert.equal(settings.status, 401)
+})
+
+test("live postgres: callback without oauth cookie uses server pending", { skip: !live }, async () => {
+  const store = createPostgresStore(databaseUrl)
+  const identity = {
+    sub: "phase3-sub-pending",
+    email: "phase3-pending@example.com",
+  }
+  const google = fakeGoogle(identity)
+  const deps = { env: env(), store, google }
+  const start = await handleGoogleStart(request("/api/auth/google"), deps)
+  const state = new URL(start.headers.get("location") ?? "").searchParams.get(
+    "state"
+  )
+  const callback = await handleGoogleCallback(
+    request(`/api/auth/google/callback?code=ok&state=${state}`),
+    deps
+  )
+  assert.equal(callback.status, 302)
+  assert.ok(cookiesFromResponse(callback)[SESSION_COOKIE])
+  assert.match(callback.headers.get("location") ?? "", /auth=ok/)
+  const stored = await store.getSettings(identity.sub)
+  assert.equal(stored?.color, "#1a73e8")
+  const replay = await handleGoogleCallback(
+    request(`/api/auth/google/callback?code=ok&state=${state}`),
+    deps
+  )
+  assert.match(replay.headers.get("location") ?? "", /auth=expired/)
 })
 
 test("live postgres: OAuth next rejects open redirects", { skip: !live }, async () => {

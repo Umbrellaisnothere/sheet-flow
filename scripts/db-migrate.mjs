@@ -23,7 +23,7 @@ const sql = postgres(url, { max: 1, onnotice: () => {} })
 
 try {
   await sql.unsafe(schema)
-  console.log("Applied schema: users, highlight_settings.")
+  console.log("Applied schema: users, highlight_settings, oauth_pending.")
 } catch (error) {
   const message = error instanceof Error ? error.message : "migration failed"
   console.error(message.replace(url, "[DATABASE_URL]"))

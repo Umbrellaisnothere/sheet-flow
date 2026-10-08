@@ -101,10 +101,17 @@ export async function handleGoogleStart(
   request: Request,
   deps: HandlerDeps = {}
 ): Promise<Response> {
-  const { env, store } = resolve(deps)
+  const { env, store, now } = resolve(deps)
   const blocked = requireConfigured(env, store, true)
   if (blocked) {
     return blocked
+  }
+  if (!store) {
+    return htmlMessage(
+      "Sign-in is not configured",
+      "This server cannot create a sign-in session.",
+      503
+    )
   }
   const url = new URL(request.url)
   const next = safeNextPath(url.searchParams.get("next"))
@@ -112,12 +119,13 @@ export async function handleGoogleStart(
   const nonce = randomToken()
   const codeVerifier = randomToken()
   const codeChallenge = pkceChallenge(codeVerifier)
+  const pending = { state, nonce, codeVerifier, next }
   let sealed: string
   try {
-    sealed = await sealOAuth(
-      env.sessionSecret,
-      { state, nonce, codeVerifier, next },
-      OAUTH_MAX_AGE_SECONDS
+    sealed = await sealOAuth(env.sessionSecret, pending, OAUTH_MAX_AGE_SECONDS)
+    await store.saveOAuthPending(
+      pending,
+      new Date(now().getTime() + OAUTH_MAX_AGE_SECONDS * 1000)
     )
   } catch {
     return htmlMessage(
@@ -155,7 +163,18 @@ export async function handleGoogleCallback(
 
   const url = new URL(request.url)
   const cookies = parseCookies(request.headers.get("cookie"))
-  const pending = await unsealOAuth(env.sessionSecret, cookies[OAUTH_COOKIE], now())
+  const fromCookie = await unsealOAuth(
+    env.sessionSecret,
+    cookies[OAUTH_COOKIE],
+    now()
+  )
+  const stateParam = url.searchParams.get("state")
+  let pending = fromCookie
+  if (fromCookie) {
+    await store.takeOAuthPending(fromCookie.state, now())
+  } else if (stateParam) {
+    pending = await store.takeOAuthPending(stateParam, now())
+  }
   const clearHeaders = new Headers()
   appendCookie(
     clearHeaders,

@@ -22,6 +22,13 @@ export type AccountState = {
   settings: SettingsRecord | null
 }
 
+export type PendingOAuth = {
+  state: string
+  nonce: string
+  codeVerifier: string
+  next: string
+}
+
 export type AccountStore = {
   upsertUserBySub(sub: string, email: string): Promise<UserRecord>
   getUserBySub(sub: string): Promise<UserRecord | null>
@@ -33,4 +40,6 @@ export type AccountStore = {
     opacity: string,
     baseUpdatedAt?: string
   ): Promise<SettingsUpdateResult>
+  saveOAuthPending(pending: PendingOAuth, expiresAt: Date): Promise<void>
+  takeOAuthPending(state: string, now?: Date): Promise<PendingOAuth | null>
 }

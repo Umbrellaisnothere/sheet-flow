@@ -1,5 +1,10 @@
 import { DEFAULT_COLOR, DEFAULT_OPACITY, isoNow } from "./validate.ts"
-import type { AccountStore, SettingsRecord, UserRecord } from "./store.ts"
+import type {
+  AccountStore,
+  PendingOAuth,
+  SettingsRecord,
+  UserRecord,
+} from "./store.ts"
 
 function sameInstant(left: string, right: string): boolean {
   const a = Date.parse(left)
@@ -13,6 +18,7 @@ function sameInstant(left: string, right: string): boolean {
 export function createMemoryStore(now: () => Date = () => new Date()): AccountStore {
   const users = new Map<string, UserRecord>()
   const settings = new Map<string, SettingsRecord>()
+  const pendingOAuth = new Map<string, PendingOAuth & { expiresAt: number }>()
 
   return {
     async upsertUserBySub(sub, email) {
@@ -73,6 +79,25 @@ export function createMemoryStore(now: () => Date = () => new Date()): AccountSt
       }
       settings.set(sub, next)
       return { ok: true, settings: next }
+    },
+    async saveOAuthPending(pending, expiresAt) {
+      pendingOAuth.set(pending.state, {
+        ...pending,
+        expiresAt: expiresAt.getTime(),
+      })
+    },
+    async takeOAuthPending(state, now = new Date()) {
+      const row = pendingOAuth.get(state)
+      pendingOAuth.delete(state)
+      if (!row || row.expiresAt <= now.getTime()) {
+        return null
+      }
+      return {
+        state: row.state,
+        nonce: row.nonce,
+        codeVerifier: row.codeVerifier,
+        next: row.next,
+      }
     },
   }
 }

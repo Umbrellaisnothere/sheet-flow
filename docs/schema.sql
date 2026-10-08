@@ -18,3 +18,16 @@ CREATE TABLE IF NOT EXISTS highlight_settings (
 
 CREATE INDEX IF NOT EXISTS highlight_settings_updated_at_idx
   ON highlight_settings (updated_at);
+
+-- Short-lived PKCE state for the Google callback. Not a Google token store.
+-- Needed because Chrome may drop the fc_oauth cookie on the bounce through accounts.google.com.
+CREATE TABLE IF NOT EXISTS oauth_pending (
+  state TEXT PRIMARY KEY,
+  nonce TEXT NOT NULL,
+  code_verifier TEXT NOT NULL,
+  next_path TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS oauth_pending_expires_at_idx
+  ON oauth_pending (expires_at);

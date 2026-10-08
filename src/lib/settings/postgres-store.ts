@@ -3,6 +3,7 @@ import postgres from "postgres"
 import { DEFAULT_COLOR, DEFAULT_OPACITY } from "./validate.ts"
 import type {
   AccountStore,
+  PendingOAuth,
   SettingsRecord,
   SettingsUpdateResult,
   UserRecord,
@@ -168,6 +169,52 @@ export function createPostgresStore(databaseUrl: string): AccountStore {
         }
         return ok
       })
+    },
+    async saveOAuthPending(pending, expiresAt) {
+      await sql`
+        DELETE FROM oauth_pending WHERE expires_at <= now()
+      `
+      await sql`
+        INSERT INTO oauth_pending (state, nonce, code_verifier, next_path, expires_at)
+        VALUES (
+          ${pending.state},
+          ${pending.nonce},
+          ${pending.codeVerifier},
+          ${pending.next},
+          ${expiresAt}
+        )
+        ON CONFLICT (state) DO UPDATE
+        SET nonce = EXCLUDED.nonce,
+            code_verifier = EXCLUDED.code_verifier,
+            next_path = EXCLUDED.next_path,
+            expires_at = EXCLUDED.expires_at
+      `
+    },
+    async takeOAuthPending(state, now = new Date()) {
+      const rows = await sql<
+        {
+          state: string
+          nonce: string
+          code_verifier: string
+          next_path: string
+        }[]
+      >`
+        DELETE FROM oauth_pending
+        WHERE state = ${state}
+          AND expires_at > ${now}
+        RETURNING state, nonce, code_verifier, next_path
+      `
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+      const pending: PendingOAuth = {
+        state: row.state,
+        nonce: row.nonce,
+        codeVerifier: row.code_verifier,
+        next: row.next_path,
+      }
+      return pending
     },
   }
 }

@@ -507,13 +507,34 @@ test("oauth: protocol-relative next is rejected", async () => {
   assert.doesNotMatch(response.headers.get("location") ?? "", /evil/)
 })
 
-test("oauth: missing oauth cookie cannot complete login", async () => {
+test("oauth: unknown state without pending cannot complete login", async () => {
   const google = fakeGoogle({ sub: "sub-a", email: "a@example.com" })
   const response = await handleGoogleCallback(
     request("/api/auth/google/callback?code=ok&state=abc"),
     deps({ google })
   )
   assert.match(response.headers.get("location") ?? "", /auth=expired/)
+})
+
+test("oauth: callback succeeds without cookie when server pending exists", async () => {
+  const store = createMemoryStore()
+  const google = fakeGoogle({ sub: "sub-a", email: "a@example.com" })
+  const start = await handleGoogleStart(
+    request("/api/auth/google"),
+    deps({ store, google })
+  )
+  const state = new URL(start.headers.get("location") ?? "").searchParams.get(
+    "state"
+  )
+  const response = await handleGoogleCallback(
+    request(`/api/auth/google/callback?code=ok&state=${state}`),
+    deps({ store, google })
+  )
+  assert.equal(response.status, 302)
+  assert.ok(cookiesFromResponse(response)[SESSION_COOKIE])
+  assert.match(response.headers.get("location") ?? "", /auth=ok/)
+  const settings = await store.getSettings("sub-a")
+  assert.equal(settings?.color, "#1a73e8")
 })
 
 test("oauth: start without credentials is not configured", async () => {
