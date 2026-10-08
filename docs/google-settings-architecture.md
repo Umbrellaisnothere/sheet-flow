@@ -1,13 +1,14 @@
 # Optional Google-account settings (architecture)
 
-Status: **Phase 2 — website backend implemented.** Google OAuth, application sessions, Postgres persistence, and `/api/settings` exist on the website. The Tampermonkey highlighter is still local-only and unchanged. Do not add `GM_xmlhttpRequest` or `@connect` until a later phase.
+Status: **Phase 3 — local Postgres path verified; live Google OAuth still requires Cloud credentials.** Website backend from Phase 2 is unchanged in contract. The Tampermonkey highlighter is still local-only. Do not add `GM_xmlhttpRequest` or `@connect` until a later phase.
 
 Phase 1 remains the design record. This section records what Phase 2 actually shipped.
 
 ### Phase 2 implementation notes
 
 - **Database:** two tables, `users` and `highlight_settings`, keyed by Google OIDC `sub` (`google_sub`). Email is display-only and not unique. Schema: [`docs/schema.sql`](schema.sql). Apply with `npm run db:migrate` (requires `DATABASE_URL`). Non-destructive; `CREATE TABLE IF NOT EXISTS` only.
-- **Store:** `postgres` (postgres.js) when `DATABASE_URL` is set. Tests use an in-memory store. Missing credentials return **503** `not_configured` rather than inventing a production memory database.
+- **Store:** `postgres` (postgres.js) when `DATABASE_URL` is set. Unit tests use an in-memory store. `src/lib/settings/postgres.live.test.ts` hits a real database when `.env.local` has `DATABASE_URL`. Missing Google credentials still return **503** `not_configured` on the website; the highlighter does not need them.
+- **Migrate:** `npm run db:migrate` loads `.env.local` / `.env`. Schema is `CREATE TABLE IF NOT EXISTS` only.
 - **OAuth:** authorization code + PKCE S256, scopes `openid email profile` only. ID token verified with Google JWKS (`iss`, `aud`, `exp`, `nonce`). Google access tokens are discarded. Client secret stays server-side.
 - **Session:** encrypted JWE cookie `fc_session` (`dir` + `A256GCM` via `jose`), HttpOnly, SameSite=Lax, Secure in production / HTTPS, 7-day lifetime. Payload: `{ sub, email, exp }`. Short-lived `fc_oauth` cookie holds `state`, `nonce`, and `code_verifier`.
 - **Optimistic concurrency:** `PUT /api/settings` accepts optional `baseUpdatedAt`. Mismatch → **409** with the current row. The server always stamps `updatedAt` in UTC ISO-8601.

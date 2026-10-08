@@ -104,7 +104,7 @@ The highlighter demo does not need Google or Postgres. Optional **website** sign
 1. Copy `.env.example` to `.env.local` and fill the server-only variables. Never prefix them with `NEXT_PUBLIC_`.
 2. Create a Google Cloud **Web** OAuth client. Authorised origin `http://127.0.0.1:43173`. Redirect URI `http://127.0.0.1:43173/api/auth/google/callback`. Scopes: `openid`, `email`, `profile`.
 3. Provision Postgres (Neon, Vercel Postgres, or local) and set `DATABASE_URL`.
-4. Apply the schema: `npm run db:migrate`
+4. Apply the schema: `npm run db:migrate` (reads `.env.local`; does not drop tables)
 5. Generate a 32+ character `SESSION_SECRET`. Set `APP_ORIGIN=http://127.0.0.1:43173`.
 
 `npm run dev` serves `http://127.0.0.1:43173`. Sign in with Google is in the header. Signing out never blocks the playground or `/instant`. The Tampermonkey script still stores colour locally; it does not call this API yet.
@@ -127,6 +127,7 @@ npm run sync    # refresh the published copies after editing a source file
 - `userscript/overlay.test.mjs` runs the real userscript in a hand-built DOM whose rectangles are set explicitly, because jsdom reports every box as zero and boxes are the only input this code has. It pins the geometry for single cells, blocks, several disjoint picks, frozen panes duplicating the outline, a missing or zero-size grid, and event coalescing.
 - `userscript/compat-security.test.mjs` checks Tampermonkey metadata (HTTPS-only Sheets match, storage-only grants), security (no `eval`/`fetch`/`innerHTML`, XSS hex rejected, corrupt GM storage ignored), compatibility (no GM API, async `GM.getValue`, private-mode storage, a second script copy), and usability (aria labels, chip above the overlay, README install steps).
 - `apps-script/code.test.mjs` loads `Code.gs` with fake `SpreadsheetApp`, `CacheService`, and `PropertiesService`. It checks that fifty clicks leave exactly one rule rather than fifty, that your own rules survive in order, that the click path makes two API calls and writes no values, and that every menu item points at a function that exists.
+- `src/lib/settings/postgres.live.test.ts` runs against a real `DATABASE_URL` when `.env.local` provides one. It is skipped when Postgres is not configured, so CI without a database still passes.
 
 Requires Node 22.6 or newer, for `--experimental-strip-types`.
 
