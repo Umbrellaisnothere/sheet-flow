@@ -99,6 +99,30 @@ npm run build
 npm start
 ```
 
+The highlighter demo does not need Google or Postgres. Optional **website** sign-in (account-backed colour/opacity on this site only) needs local configuration:
+
+1. Copy `.env.example` to `.env.local` and fill the server-only variables. Never prefix them with `NEXT_PUBLIC_`.
+2. Create a Google Cloud **Web** OAuth client. Authorised origin `http://127.0.0.1:43173`. Redirect URI `http://127.0.0.1:43173/api/auth/google/callback`. Scopes: `openid`, `email`, `profile`.
+3. Provision Postgres (Neon, Vercel Postgres, or local) and set `DATABASE_URL`.
+4. Apply the schema: `npm run db:migrate` (reads `.env.local`; does not drop tables)
+5. Generate a 32+ character `SESSION_SECRET`. Set `APP_ORIGIN=http://127.0.0.1:43173`.
+
+`npm run dev` serves `http://127.0.0.1:43173`. Sign in with Google is in the header. Signing out never blocks the playground or `/instant`. Tampermonkey colour/opacity still work with no account. Optional cloud sync talks only to that local origin (`@connect 127.0.0.1`). `/instant` has no GM network API, so Enable cloud sync stays local-only there.
+
+### Production cloud sync (blocked until a host is confirmed)
+
+This repo does **not** contain a production domain. Do not invent one. Before cross-device sync can run outside localhost:
+
+1. Choose the real HTTPS origin (no path, query, fragment, or credentials), e.g. `https://<confirmed-host>`.
+2. Set `APP_ORIGIN` to that origin. Production will not fall back to `http://127.0.0.1:43173`. On Vercel, you can omit `APP_ORIGIN` and the HTTPS deployment URL is used automatically.
+3. Set `GOOGLE_REDIRECT_URI` to `https://<confirmed-host>/api/auth/google/callback` and register the same authorised origin and redirect in Google Cloud.
+4. In `userscript/sheets-focus-cell.user.js`, set `@connect` to the hostname only (never `*`) and `SYNC_ORIGIN` to the same HTTPS origin. `bakeUserscriptSyncOrigin()` in `src/lib/auth/origin.ts` is the tested transform. Then `npm run sync`.
+5. Keep `/instant` as a page-script demo with no extra network grants.
+
+Until that origin exists, local `APP_ORIGIN=http://127.0.0.1:43173` is the only supported sync host.
+
+Details: [`docs/google-settings-architecture.md`](docs/google-settings-architecture.md).
+
 - `/` — start-here install path plus the spreadsheet playground
 - `/instant` — Tampermonkey install and the userscript running against a mock of the Sheets DOM
 - `/script` — copy or download `Code.gs`, with the Focus Cell menu steps
@@ -115,6 +139,7 @@ npm run sync    # refresh the published copies after editing a source file
 - `userscript/overlay.test.mjs` runs the real userscript in a hand-built DOM whose rectangles are set explicitly, because jsdom reports every box as zero and boxes are the only input this code has. It pins the geometry for single cells, blocks, several disjoint picks, frozen panes duplicating the outline, a missing or zero-size grid, and event coalescing.
 - `userscript/compat-security.test.mjs` checks Tampermonkey metadata (HTTPS-only Sheets match, storage-only grants), security (no `eval`/`fetch`/`innerHTML`, XSS hex rejected, corrupt GM storage ignored), compatibility (no GM API, async `GM.getValue`, private-mode storage, a second script copy), and usability (aria labels, chip above the overlay, README install steps).
 - `apps-script/code.test.mjs` loads `Code.gs` with fake `SpreadsheetApp`, `CacheService`, and `PropertiesService`. It checks that fifty clicks leave exactly one rule rather than fifty, that your own rules survive in order, that the click path makes two API calls and writes no values, and that every menu item points at a function that exists.
+- `src/lib/settings/postgres.live.test.ts` runs against a real `DATABASE_URL` when `.env.local` provides one. It is skipped when Postgres is not configured, so CI without a database still passes.
 
 Requires Node 22.6 or newer, for `--experimental-strip-types`.
 
@@ -133,6 +158,9 @@ Requires Node 22.6 or newer, for `--experimental-strip-types`.
 | `userscript/compat-security.test.mjs` | Tampermonkey compatibility, security, and usability checks |
 | `apps-script/script-harness.mjs` | Stand-in Sheets services `Code.gs` is tested against |
 | `scripts/sync-assets.mjs` | Copies sources into `public/` and `extension/` |
+| `docs/google-settings-architecture.md` | Google-account settings architecture; Phase 2 website backend is implemented |
+| `docs/schema.sql` | Postgres tables for users and highlight settings |
+| `.env.example` | Server-only environment variable names |
 
 ## License
 

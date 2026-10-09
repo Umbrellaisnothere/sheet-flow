@@ -46,9 +46,22 @@ Hex and opacity are stored in two places so a refresh does not reset them:
 - **Tampermonkey’s own storage** (`GM_setValue`) — this is the reliable copy. You never open the editor; the script writes it for you.
 - **This browser’s `localStorage`** — used as a backup, and by the unpacked extension which has no Tampermonkey API.
 
-Reload the spreadsheet, or close and reopen the tab: the last colour and opacity come back. They stay in this browser profile. They do not follow you to another computer.
+Reload the spreadsheet, or close and reopen the tab: the last colour and opacity come back. They stay in this browser profile unless you turn on optional cloud sync.
 
 To reset, pick the blue preset (`#1a73e8`) or type that hex.
+
+## 3b. Optional cloud sync (Tampermonkey)
+
+Colour still works with no account. To copy colour and opacity across browsers:
+
+1. Sign in with Google on the Focus Cell website.
+2. Open the colour chip on a Sheet and click **Enable cloud sync**.
+3. Approve the highlighter in the Focus Cell tab that opens.
+4. The chip shows **Cloud sync: on** and the account colour. Changes save both locally and to your account.
+
+Turn it off from the same panel to go back to this-browser-only colour. First-run tip state (`seenTip`) never leaves this device. If Focus Cell is unreachable, the highlight keeps using the local colour.
+
+This uses Tampermonkey `GM_xmlhttpRequest` to `127.0.0.1` for local development. It does not send the website session cookie, and it does not use `fetch` on the Sheet. Production `@connect` is not baked in: a confirmed HTTPS Focus Cell origin must be written into the script before cross-device sync can leave localhost. `/instant` still has no GM network API, so Enable cloud sync stays local-only on that page.
 
 ## 4. Everyday shortcuts
 
@@ -75,7 +88,7 @@ Colour changes do not require an update. You only paste a new `sheets-focus-cell
 
 From the repo root, `npm test` loads the real `sheets-focus-cell.user.js` (not a mock of it) and checks:
 
-- **Compatibility** — HTTPS-only `@match`, storage-only `@grant`, no GM API (unpacked extension), async `GM.getValue` (Violentmonkey), private-mode storage, missing `Promise` / `MutationObserver`, and two copies of the script not stacking overlays.
-- **Security** — no `eval`, `fetch`, or `innerHTML`; hex XSS strings rejected; corrupt Tampermonkey storage ignored; the overlay cannot steal clicks.
+- **Compatibility** — HTTPS-only `@match`, storage grants plus one-host `GM_xmlhttpRequest`, no GM API (unpacked extension), async `GM.getValue` (Violentmonkey), private-mode storage, missing `Promise` / `MutationObserver`, and two copies of the script not stacking overlays.
+- **Security** — no `eval`, page `fetch`, or `innerHTML`; hex XSS strings rejected; corrupt Tampermonkey storage ignored; the overlay cannot steal clicks; cloud sync is optional and local-first.
 - **Functionality** — hex with or without `#`, opacity clamped, colour remembered after a reload, AltGr not toggling the highlight.
 - **User-friendliness** — aria labels on the chip, hex field, and opacity bar; this README mentioning Allow User Scripts, hex, and Edge.

@@ -1,5 +1,13 @@
 import type { NextConfig } from "next";
 
+import { resolveAppOrigin, vercelHttpsOrigin } from "./src/lib/auth/origin";
+
+resolveAppOrigin(
+  process.env.APP_ORIGIN ?? "",
+  process.env.NODE_ENV ?? "development",
+  vercelHttpsOrigin(process.env)
+);
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
     "127.0.0.1",
@@ -8,6 +16,7 @@ const nextConfig: NextConfig = {
     "*.cursor.com",
     "*.dev.cursor.com",
   ],
+  serverExternalPackages: ["postgres"],
   devIndicators: false,
 };
 

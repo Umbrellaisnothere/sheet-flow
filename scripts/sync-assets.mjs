@@ -2,6 +2,10 @@ import { copyFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
+// Copies stay byte-identical to their sources. Do not bake a production
+// @connect host here until APP_ORIGIN is a confirmed HTTPS origin; use
+// bakeUserscriptSyncOrigin() in src/lib/auth/origin.ts, then copy.
+
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 export const copies = [

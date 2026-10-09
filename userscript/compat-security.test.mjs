@@ -47,17 +47,21 @@ test("compat: Tampermonkey metadata only targets HTTPS Sheets URLs", () => {
   assert.doesNotMatch(header, /@include\s+\*/)
 })
 
-test("compat: grants are storage-only, not network or cookies", () => {
+test("compat: grants are storage plus a single-host settings sync", () => {
   const grants = [...header.matchAll(/@grant\s+(\S+)/g)].map((match) => match[1])
   for (const grant of grants) {
     assert.match(
       grant,
-      /^(GM_getValue|GM_setValue|GM\.getValue|GM\.setValue)$/,
+      /^(GM_getValue|GM_setValue|GM\.getValue|GM\.setValue|GM_xmlhttpRequest)$/,
       "unexpected grant " + grant
     )
   }
-  assert.doesNotMatch(header, /GM_xmlhttpRequest|GM_cookie|unsafeWindow|window.close/)
-  assert.doesNotMatch(header, /@connect|@require|@resource/)
+  assert.ok(grants.includes("GM_xmlhttpRequest"))
+  const hosts = [...header.matchAll(/@connect\s+(\S+)/g)].map((match) => match[1])
+  assert.deepEqual(hosts, ["127.0.0.1"])
+  assert.doesNotMatch(header, /@connect\s+\*/)
+  assert.doesNotMatch(header, /GM_cookie|unsafeWindow|window.close/)
+  assert.doesNotMatch(header, /@require|@resource/)
 })
 
 test("compat: the file stays Tampermonkey-parseable ES5-style script", () => {
@@ -150,13 +154,13 @@ test("compat: missing Promise falls back to localStorage", () => {
 // --- Security ---------------------------------------------------------------
 
 test("security: the script never talks to the network or evals strings", () => {
-  assert.doesNotMatch(
-    userscriptSource,
-    /fetch\s*\(|XMLHttpRequest|WebSocket|navigator\.sendBeacon/
-  )
+  assert.doesNotMatch(userscriptSource, /\bfetch\s*\(/)
+  assert.doesNotMatch(userscriptSource, /new\s+XMLHttpRequest|WebSocket|navigator\.sendBeacon/)
   assert.doesNotMatch(userscriptSource, /\beval\s*\(|new Function\s*\(/)
   assert.doesNotMatch(userscriptSource, /document\.write|innerHTML|outerHTML|insertAdjacentHTML/)
   assert.doesNotMatch(userscriptSource, /javascript:/)
+  assert.match(userscriptSource, /anonymous:\s*true/)
+  assert.match(userscriptSource, /SYNC_ORIGIN = "http:\/\/127\.0\.0\.1:43173"/)
 })
 
 test("security: stored XSS payloads cannot become a highlight colour", () => {

@@ -469,6 +469,23 @@ test("an invalid colour is ignored so a bad picker value cannot blank the highli
   assert.equal(band.style.backgroundColor, "#1a73e8")
 })
 
+test("the open colour panel pins to the grid corner without covering the grid", () => {
+  const h = createHarness()
+  const grid = h.grid(100, 200, 800, 400)
+  h.activeCell(grid, 340, 260, 90, 20)
+  h.dispatch("click")
+  h.flush()
+
+  h.findByAria("Highlight colour").click()
+  const panel = h.panel()
+  assert.equal(panel.style.bottom, "176px")
+  assert.equal(panel.style.right, "132px")
+  assert.equal(panel.style.height, "auto")
+  assert.equal(panel.style.top, "auto")
+  assert.equal(panel.style.left, "auto")
+  assert.equal(panel.style.justifyContent, "flex-end")
+})
+
 test("the colour chip sits outside the overlay so it can still receive clicks", () => {
   const h = createHarness()
   const grid = h.grid(100, 200, 800, 400)

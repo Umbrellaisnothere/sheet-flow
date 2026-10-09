@@ -205,9 +205,21 @@ export function createHarness(options = {}) {
   if (options.noPromise !== true) {
     sandbox.Promise = Promise
   }
+  const xhrCalls = []
   if (options.noGm !== true && options.gmAsync !== true) {
     sandbox.GM_getValue = GM_getValue
     sandbox.GM_setValue = GM_setValue
+    sandbox.GM_xmlhttpRequest = (details) => {
+      xhrCalls.push(details)
+      const handle =
+        options.gmXhr ||
+        ((request) => {
+          if (typeof request.onerror === "function") {
+            request.onerror({ error: "network" })
+          }
+        })
+      handle(details)
+    }
   }
   if (options.gmAsync === true) {
     sandbox.GM = {
@@ -290,6 +302,7 @@ export function createHarness(options = {}) {
 
     storage: memory,
     gm,
+    xhrCalls,
 
     descendants: () => body.descendants(),
 
