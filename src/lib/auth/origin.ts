@@ -50,20 +50,53 @@ export function parseAppOrigin(value: string): string {
   return url.origin
 }
 
+type OriginEnv = Record<string, string | undefined>
+
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = (value ?? "").trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+  return undefined
+}
+
+/** HTTPS origin Vercel provides for this deployment. Undefined off Vercel. */
+export function vercelHttpsOrigin(env: OriginEnv = process.env): string | undefined {
+  if ((env.VERCEL ?? "").trim() !== "1") {
+    return undefined
+  }
+  const host =
+    env.VERCEL_ENV === "production"
+      ? firstNonEmpty(env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_URL)
+      : firstNonEmpty(env.VERCEL_BRANCH_URL, env.VERCEL_URL)
+  if (!host) {
+    return undefined
+  }
+  const candidate = host.includes("://") ? host : `https://${host}`
+  return parseAppOrigin(candidate)
+}
+
 export function resolveAppOrigin(
   raw: string | undefined,
-  nodeEnv: string
+  nodeEnv: string,
+  vercelOrigin?: string
 ): string {
   const trimmed = (raw ?? "").trim()
-  if (!trimmed) {
-    if (nodeEnv === "production") {
-      throw new Error(
-        "APP_ORIGIN is required in production. Set it to the HTTPS site origin with no path, query, or trailing slash."
-      )
-    }
-    return LOCAL_DEV_ORIGIN
+  if (trimmed) {
+    return parseAppOrigin(trimmed)
   }
-  return parseAppOrigin(trimmed)
+  const fromVercel = (vercelOrigin ?? "").trim()
+  if (fromVercel) {
+    return parseAppOrigin(fromVercel)
+  }
+  if (nodeEnv === "production") {
+    throw new Error(
+      "APP_ORIGIN is required in production. Set it to the HTTPS site origin with no path, query, or trailing slash. On Vercel, the deployment URL is used when APP_ORIGIN is unset."
+    )
+  }
+  return LOCAL_DEV_ORIGIN
 }
 
 export function allowedRequestOrigins(appOrigin: string): string[] {

@@ -10,6 +10,7 @@ import {
   LOCAL_DEV_ORIGIN,
   parseAppOrigin,
   resolveAppOrigin,
+  vercelHttpsOrigin,
 } from "./origin.ts"
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -36,6 +37,71 @@ test("origin: production does not silently default to localhost", () => {
     /APP_ORIGIN is required in production/
   )
   assert.throws(() => resolveAppOrigin("   ", "production"), /APP_ORIGIN is required/)
+})
+
+test("origin: Vercel preview uses the HTTPS deployment URL when APP_ORIGIN is unset", () => {
+  assert.equal(
+    vercelHttpsOrigin({
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      VERCEL_URL: "sheet-flow-git-preview.vercel.app",
+    }),
+    "https://sheet-flow-git-preview.vercel.app"
+  )
+  assert.equal(
+    resolveAppOrigin("", "production", "https://sheet-flow-git-preview.vercel.app"),
+    "https://sheet-flow-git-preview.vercel.app"
+  )
+})
+
+test("origin: Vercel production prefers the project production URL", () => {
+  assert.equal(
+    vercelHttpsOrigin({
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_URL: "sheet-flow-abc123.vercel.app",
+      VERCEL_PROJECT_PRODUCTION_URL: "sheet-flow.vercel.app",
+    }),
+    "https://sheet-flow.vercel.app"
+  )
+  assert.equal(
+    vercelHttpsOrigin({
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      VERCEL_BRANCH_URL: "sheet-flow-git-branch.vercel.app",
+      VERCEL_URL: "sheet-flow-unique.vercel.app",
+    }),
+    "https://sheet-flow-git-branch.vercel.app"
+  )
+})
+
+test("origin: explicit APP_ORIGIN wins over the Vercel deployment URL", () => {
+  assert.equal(
+    resolveAppOrigin(
+      "https://app.example.com",
+      "production",
+      "https://sheet-flow.vercel.app"
+    ),
+    "https://app.example.com"
+  )
+})
+
+test("origin: Vercel HTTP hosts are rejected and missing Vercel URLs still fail production", () => {
+  assert.equal(vercelHttpsOrigin({}), undefined)
+  assert.equal(vercelHttpsOrigin({ VERCEL: "1" }), undefined)
+  assert.throws(
+    () =>
+      vercelHttpsOrigin({
+        VERCEL: "1",
+        VERCEL_ENV: "preview",
+        VERCEL_URL: "http://sheet-flow.vercel.app",
+      }),
+    /HTTP is only allowed for localhost/
+  )
+  assert.throws(
+    () => resolveAppOrigin("", "production", undefined),
+    /APP_ORIGIN is required in production/
+  )
 })
 
 test("origin: production rejects HTTP and malformed values", () => {

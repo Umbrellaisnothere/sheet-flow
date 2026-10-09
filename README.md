@@ -114,7 +114,7 @@ The highlighter demo does not need Google or Postgres. Optional **website** sign
 This repo does **not** contain a production domain. Do not invent one. Before cross-device sync can run outside localhost:
 
 1. Choose the real HTTPS origin (no path, query, fragment, or credentials), e.g. `https://<confirmed-host>`.
-2. Set `APP_ORIGIN` to that origin. Production will not fall back to `http://127.0.0.1:43173`.
+2. Set `APP_ORIGIN` to that origin. Production will not fall back to `http://127.0.0.1:43173`. On Vercel, you can omit `APP_ORIGIN` and the HTTPS deployment URL is used automatically.
 3. Set `GOOGLE_REDIRECT_URI` to `https://<confirmed-host>/api/auth/google/callback` and register the same authorised origin and redirect in Google Cloud.
 4. In `userscript/sheets-focus-cell.user.js`, set `@connect` to the hostname only (never `*`) and `SYNC_ORIGIN` to the same HTTPS origin. `bakeUserscriptSyncOrigin()` in `src/lib/auth/origin.ts` is the tested transform. Then `npm run sync`.
 5. Keep `/instant` as a page-script demo with no extra network grants.

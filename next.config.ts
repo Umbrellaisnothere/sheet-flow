@@ -1,10 +1,11 @@
 import type { NextConfig } from "next";
 
-import { resolveAppOrigin } from "./src/lib/auth/origin";
+import { resolveAppOrigin, vercelHttpsOrigin } from "./src/lib/auth/origin";
 
 resolveAppOrigin(
   process.env.APP_ORIGIN ?? "",
-  process.env.NODE_ENV ?? "development"
+  process.env.NODE_ENV ?? "development",
+  vercelHttpsOrigin(process.env)
 );
 
 const nextConfig: NextConfig = {

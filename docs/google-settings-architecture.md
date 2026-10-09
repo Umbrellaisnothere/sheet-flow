@@ -14,7 +14,7 @@ Phase 1 remains the design record. This section records what Phase 2 actually sh
 - **Optimistic concurrency:** `PUT /api/settings` accepts optional `baseUpdatedAt`. Mismatch → **409** with the current row. The server always stamps `updatedAt` in UTC ISO-8601.
 - **Website UI:** optional “Sign in with Google” in the header. No login wall. Cloud colour/opacity on the site are independent of the userscript chip.
 - **Tampermonkey sync:** `GM_xmlhttpRequest` with `anonymous: true` and `Authorization: Bearer`. SameSite=Lax `fc_session` is not sent from Sheets; do not rely on cookie transport. Grant is hashed in `sync_tokens` and deleted on website logout.
-- **Not implemented:** extension `chrome.identity`, production `@connect` host (blocked until an HTTPS origin is confirmed), rate limiting. Production `APP_ORIGIN` is required and is not defaulted to localhost. HTTP is rejected except for loopback development.
+- **Not implemented:** extension `chrome.identity`, production `@connect` host (blocked until an HTTPS origin is confirmed), rate limiting. Production `APP_ORIGIN` is required off Vercel and is not defaulted to localhost. On Vercel, the HTTPS deployment URL is used when `APP_ORIGIN` is unset. HTTP is rejected except for loopback development.
 
 ### Environment variables
 
@@ -27,7 +27,7 @@ Copy [`.env.example`](../.env.example) to `.env.local`. **Server-only** (never `
 | `GOOGLE_REDIRECT_URI` | Exact callback, e.g. `http://127.0.0.1:43173/api/auth/google/callback` |
 | `DATABASE_URL` | Postgres connection string |
 | `SESSION_SECRET` | ≥32 characters for cookie encryption |
-| `APP_ORIGIN` | Canonical origin, no path. Local: `http://127.0.0.1:43173`. Production: required HTTPS origin; missing values are not defaulted to localhost |
+| `APP_ORIGIN` | Canonical origin, no path. Local: `http://127.0.0.1:43173`. Production: HTTPS origin; missing values are not defaulted to localhost. On Vercel, the deployment URL is used when unset |
 
 Nothing in this list is safe to expose to the browser or the userscript.
 
