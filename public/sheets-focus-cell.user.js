@@ -99,6 +99,8 @@
   var panelOpen = false;
   var opacityDragging = false;
   var syncEnabled = false;
+  var syncConfirmed = false;
+  var syncVerifying = false;
   var syncToken = "";
   var syncEmail = "";
   var cloudUpdatedAt = "";
@@ -243,13 +245,16 @@
       if (!saved || typeof saved !== "object") {
         return;
       }
-      syncEnabled = saved.enabled === true;
       syncToken = typeof saved.token === "string" ? saved.token : "";
       syncEmail = typeof saved.email === "string" ? saved.email : "";
       cloudUpdatedAt =
         typeof saved.cloudUpdatedAt === "string" ? saved.cloudUpdatedAt : "";
+      syncConfirmed = false;
+      syncEnabled = saved.enabled === true && Boolean(syncToken);
+      syncVerifying = Boolean(syncToken);
       if (!syncToken) {
         syncEnabled = false;
+        syncVerifying = false;
       }
     } catch {
       syncEnabled = false;
@@ -306,6 +311,8 @@
 
   function disableCloud(message) {
     syncEnabled = false;
+    syncConfirmed = false;
+    syncVerifying = false;
     syncToken = "";
     syncEmail = "";
     cloudUpdatedAt = "";
@@ -318,6 +325,13 @@
       return "";
     }
     return SYNC_ORIGIN + path;
+  }
+
+  function syncAuthorizeHref(requestId) {
+    if (typeof requestId !== "string" || !requestId || /[^A-Za-z0-9_-]/.test(requestId)) {
+      return SYNC_ORIGIN + "/sync";
+    }
+    return SYNC_ORIGIN + "/sync?request=" + encodeURIComponent(requestId);
   }
 
   function cloudRequest(method, path, body, headers, callback) {
@@ -399,25 +413,48 @@
     return true;
   }
 
+  function pullFailed(auth, message) {
+    syncBusy = false;
+    syncVerifying = false;
+    if (auth || (!syncConfirmed && !syncEnabled)) {
+      disableCloud(message);
+      return;
+    }
+    setSyncStatus(message);
+  }
+
   function pullCloud() {
-    if (!syncEnabled || !syncToken || syncBusy) {
+    if (!syncToken || syncBusy) {
+      return;
+    }
+    if (!syncEnabled && !syncVerifying) {
       return;
     }
     syncBusy = true;
     cloudRequest("GET", "/api/settings", null, authHeaders(), function (err, data, status) {
       syncBusy = false;
       if (status === 401) {
-        disableCloud("Signed out on Focus Cell. Local colour kept.");
+        pullFailed(true, "Signed out on Focus Cell. Local colour kept.");
         return;
       }
       if (err || !data) {
-        setSyncStatus("Could not reach Focus Cell. Using local colour.");
+        pullFailed(
+          false,
+          "Could not verify Focus Cell account. Local colour kept."
+        );
         return;
       }
       if (!applyCloudPayload(data)) {
-        setSyncStatus("Ignored invalid cloud settings. Local colour kept.");
+        pullFailed(
+          false,
+          "Ignored invalid cloud settings. Local colour kept."
+        );
         return;
       }
+      syncEnabled = true;
+      syncConfirmed = true;
+      syncVerifying = false;
+      saveSyncState();
       setSyncStatus(syncEmail ? "Synced as " + syncEmail : "Synced");
     });
   }
@@ -497,7 +534,9 @@
         function (err, data, status) {
           if (status === 404) {
             stopPolling();
-            setSyncStatus("Sync request expired. Try Enable again.");
+            if (!syncToken && !syncVerifying) {
+              setSyncStatus("Sync request expired. Try Enable again.");
+            }
             return;
           }
           if (err || !data) {
@@ -508,11 +547,12 @@
           }
           if (data.status === "ready" && typeof data.token === "string" && data.token) {
             stopPolling();
-            syncEnabled = true;
+            syncEnabled = false;
+            syncConfirmed = false;
+            syncVerifying = true;
             syncToken = data.token;
             syncEmail = typeof data.email === "string" ? data.email : "";
-            saveSyncState();
-            setSyncStatus("Connected. Fetching account colour…");
+            setSyncStatus("Confirming account…");
             pullCloud();
           }
         }
@@ -536,11 +576,7 @@
         setSyncStatus("Could not start sync. Local colour kept.");
         return;
       }
-      var path =
-        typeof data.authorizePath === "string" && data.authorizePath.charAt(0) === "/"
-          ? data.authorizePath
-          : "/sync?request=" + encodeURIComponent(data.requestId);
-      var href = SYNC_ORIGIN + path;
+      var href = syncAuthorizeHref(data.requestId);
       if (syncOpen) {
         syncOpen.href = href;
         if (typeof syncOpen.click === "function") {
@@ -741,27 +777,28 @@
     );
     shortcutLine.textContent = "Hide shortcut: " + shortcutLabel();
     if (syncLine) {
-      if (!syncEnabled) {
-        syncLine.textContent = "Cloud sync: off";
-      } else if (syncEmail) {
-        syncLine.textContent = "Cloud sync: on · " + syncEmail;
+      if (syncConfirmed && syncEnabled) {
+        syncLine.textContent = syncEmail
+          ? "Cloud sync: on · " + syncEmail
+          : "Cloud sync: on";
+      } else if (syncVerifying || (syncEnabled && syncToken)) {
+        syncLine.textContent = "Cloud sync: confirming";
       } else {
-        syncLine.textContent = "Cloud sync: on";
+        syncLine.textContent = "Cloud sync: off";
       }
     }
     if (syncToggle) {
-      syncToggle.textContent = syncEnabled ? "Turn off cloud sync" : "Enable cloud sync";
+      var canDisable = syncEnabled || syncVerifying || Boolean(syncToken);
+      syncToggle.textContent = canDisable
+        ? "Turn off cloud sync"
+        : "Enable cloud sync";
       syncToggle.setAttribute(
         "aria-label",
-        syncEnabled ? "Turn off cloud sync" : "Enable cloud sync"
+        canDisable ? "Turn off cloud sync" : "Enable cloud sync"
       );
     }
     if (syncNote) {
-      syncNote.textContent =
-        syncStatus ||
-        (syncEnabled
-          ? "Confirming account…"
-          : "Optional. Sign in on Focus Cell, then enable. Colour still works locally.");
+      syncNote.textContent = syncStatus || syncVerifiedMessage();
     }
     if (tip && tip.style) {
       tip.style.display = !CONFIG.seenTip && !panelOpen ? "block" : "none";
@@ -790,12 +827,22 @@
     panelOpen = open;
     if (open) {
       dismissTip();
-      if (syncEnabled && syncToken) {
+      if (syncToken && (syncEnabled || syncVerifying)) {
         pullCloud();
       }
     }
     syncPanel();
     placePanel(gridBox());
+  }
+
+  function syncVerifiedMessage() {
+    if (syncConfirmed && syncEnabled) {
+      return syncEmail ? "Synced as " + syncEmail : "Synced";
+    }
+    if (syncVerifying || (syncEnabled && syncToken)) {
+      return "Confirming account…";
+    }
+    return "Optional. Sign in on Focus Cell, then enable. Colour still works locally.";
   }
 
   function placePanel(base) {
@@ -805,15 +852,29 @@
     if (!base || !base.width || !base.height) {
       base = gridBox();
     }
-    var tipVisible = !CONFIG.seenTip && !panelOpen;
-    var width = panelOpen ? 260 : 36;
-    var height = panelOpen ? 420 : tipVisible ? 92 : 36;
+    var innerW = (window && window.innerWidth) || 1024;
+    var innerH = (window && window.innerHeight) || 768;
+    var right = innerW - (base.left + base.width) + 8;
+    var bottom = innerH - (base.top + base.height) + 8;
+    if (right < 8) {
+      right = 8;
+    }
+    if (bottom < 8) {
+      bottom = 8;
+    }
     Object.assign(panel.style, {
       display: "flex",
+      flexDirection: "column",
+      justifyContent: "flex-end",
+      alignItems: "flex-end",
       position: "fixed",
       zIndex: "10000",
-      left: Math.max(8, base.left + base.width - width - 8) + "px",
-      top: Math.max(8, base.top + base.height - height - 8) + "px",
+      left: "auto",
+      top: "auto",
+      right: right + "px",
+      bottom: bottom + "px",
+      width: panelOpen ? "260px" : "36px",
+      height: "auto",
     });
   }
 
@@ -821,6 +882,7 @@
     Object.assign(panel.style, {
       display: "none",
       flexDirection: "column",
+      justifyContent: "flex-end",
       alignItems: "flex-end",
       gap: "8px",
       pointerEvents: "auto",
@@ -1073,7 +1135,7 @@
     });
     syncToggle.addEventListener("click", function (event) {
       halt(event);
-      if (syncEnabled) {
+      if (syncEnabled || syncVerifying || syncToken) {
         stopPolling();
         disableCloud("Cloud sync is off. Local colour still works.");
         return;
@@ -1531,7 +1593,7 @@
       });
       watchGrid();
       render();
-      if (syncEnabled && syncToken) {
+      if (syncToken && (syncEnabled || syncVerifying)) {
         pullCloud();
       }
     });

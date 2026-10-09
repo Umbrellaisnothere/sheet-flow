@@ -671,6 +671,39 @@ test("sync: cookie PUT still requires Origin; bearer PUT does not", async () => 
   assert.equal(forbidden.status, 403)
 })
 
+test("sync: production Origin allowlist does not include localhost", async () => {
+  const prod = "https://example.com"
+  const { store, cookies } = await authed()
+  const blocked = await handlePutSettings(
+    request("/api/settings", {
+      method: "PUT",
+      cookies,
+      origin: ORIGIN,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ color: "#ffffff", opacity: "0.3" }),
+    }),
+    deps({
+      store,
+      env: { ...testEnv(), appOrigin: prod, googleRedirectUri: `${prod}/api/auth/google/callback` },
+    })
+  )
+  assert.equal(blocked.status, 403)
+  const allowed = await handlePutSettings(
+    request("/api/settings", {
+      method: "PUT",
+      cookies,
+      origin: prod,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ color: "#ffffff", opacity: "0.3" }),
+    }),
+    deps({
+      store,
+      env: { ...testEnv(), appOrigin: prod, googleRedirectUri: `${prod}/api/auth/google/callback` },
+    })
+  )
+  assert.equal(allowed.status, 200)
+})
+
 test("sync: a bearer cannot read another account", async () => {
   const a = await authed()
   const b = await authed(a.store, { sub: "sub-b", email: "b@example.com" })

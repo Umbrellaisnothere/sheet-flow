@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto"
 
 import type { AuthEnv } from "./config.ts"
+import { allowedRequestOrigins } from "./origin.ts"
 
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -73,10 +74,9 @@ export function originAllowed(origin: string | null, appOrigin: string): boolean
   if (!origin) {
     return false
   }
-  const allowed = new Set([
-    appOrigin.replace(/\/$/, ""),
-    "http://127.0.0.1:43173",
-    "http://localhost:43173",
-  ])
-  return allowed.has(origin.replace(/\/$/, ""))
+  try {
+    return allowedRequestOrigins(appOrigin).includes(origin.replace(/\/$/, ""))
+  } catch {
+    return false
+  }
 }

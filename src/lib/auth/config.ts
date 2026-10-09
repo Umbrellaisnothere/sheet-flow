@@ -1,10 +1,12 @@
+import { allowedRequestOrigins, resolveAppOrigin } from "./origin.ts"
+
 function read(name: string): string {
   const value = process.env[name]
   return value ? value.trim() : ""
 }
 
 export function appOrigin(): string {
-  return (read("APP_ORIGIN") || "http://127.0.0.1:43173").replace(/\/$/, "")
+  return resolveAppOrigin(read("APP_ORIGIN"), process.env.NODE_ENV || "development")
 }
 
 export function googleClientId(): string {
@@ -41,13 +43,7 @@ export function isAuthConfigured(): boolean {
 }
 
 export function allowedOrigins(): string[] {
-  const origin = appOrigin()
-  const extras = [
-    origin,
-    "http://127.0.0.1:43173",
-    "http://localhost:43173",
-  ]
-  return [...new Set(extras)]
+  return allowedRequestOrigins(appOrigin())
 }
 
 export function isAllowedOrigin(origin: string | null): boolean {
@@ -65,10 +61,7 @@ export const SESSION_COOKIE = "fc_session"
 export const OAUTH_COOKIE = "fc_oauth"
 
 export function cookieSecure(origin = appOrigin()): boolean {
-  if (origin.startsWith("https://")) {
-    return true
-  }
-  return process.env.NODE_ENV === "production"
+  return origin.startsWith("https://")
 }
 
 export type AuthEnv = {

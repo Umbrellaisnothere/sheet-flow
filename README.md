@@ -107,7 +107,19 @@ The highlighter demo does not need Google or Postgres. Optional **website** sign
 4. Apply the schema: `npm run db:migrate` (reads `.env.local`; does not drop tables)
 5. Generate a 32+ character `SESSION_SECRET`. Set `APP_ORIGIN=http://127.0.0.1:43173`.
 
-`npm run dev` serves `http://127.0.0.1:43173`. Sign in with Google is in the header. Signing out never blocks the playground or `/instant`. The Tampermonkey script still stores colour locally; it does not call this API yet.
+`npm run dev` serves `http://127.0.0.1:43173`. Sign in with Google is in the header. Signing out never blocks the playground or `/instant`. Tampermonkey colour/opacity still work with no account. Optional cloud sync talks only to that local origin (`@connect 127.0.0.1`). `/instant` has no GM network API, so Enable cloud sync stays local-only there.
+
+### Production cloud sync (blocked until a host is confirmed)
+
+This repo does **not** contain a production domain. Do not invent one. Before cross-device sync can run outside localhost:
+
+1. Choose the real HTTPS origin (no path, query, fragment, or credentials), e.g. `https://<confirmed-host>`.
+2. Set `APP_ORIGIN` to that origin. Production will not fall back to `http://127.0.0.1:43173`.
+3. Set `GOOGLE_REDIRECT_URI` to `https://<confirmed-host>/api/auth/google/callback` and register the same authorised origin and redirect in Google Cloud.
+4. In `userscript/sheets-focus-cell.user.js`, set `@connect` to the hostname only (never `*`) and `SYNC_ORIGIN` to the same HTTPS origin. `bakeUserscriptSyncOrigin()` in `src/lib/auth/origin.ts` is the tested transform. Then `npm run sync`.
+5. Keep `/instant` as a page-script demo with no extra network grants.
+
+Until that origin exists, local `APP_ORIGIN=http://127.0.0.1:43173` is the only supported sync host.
 
 Details: [`docs/google-settings-architecture.md`](docs/google-settings-architecture.md).
 

@@ -8,6 +8,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      APP_ORIGIN: http://127.0.0.1:43173
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
