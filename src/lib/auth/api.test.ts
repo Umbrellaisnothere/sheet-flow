@@ -110,6 +110,57 @@ test("auth: unauthenticated GET /api/settings returns 401", async () => {
   assert.equal(body.error, "unauthenticated")
 })
 
+test("auth: session without a database store is not_configured, not unauthenticated", async () => {
+  const response = await handleSession(
+    request("/api/auth/session"),
+    deps({ store: null })
+  )
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error, "not_configured")
+})
+
+test("auth: session with a short SESSION_SECRET is not_configured", async () => {
+  const response = await handleSession(
+    request("/api/auth/session"),
+    deps({ env: { ...testEnv(), sessionSecret: "too-short-for-production" } })
+  )
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error, "not_configured")
+})
+
+test("auth: session missing Google client credentials is not_configured", async () => {
+  const response = await handleSession(
+    request("/api/auth/session"),
+    deps({ env: { ...testEnv(), googleClientId: "", googleClientSecret: "" } })
+  )
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error, "not_configured")
+})
+
+test("auth: configured session without a cookie is unauthenticated, not 503", async () => {
+  const response = await handleSession(request("/api/auth/session"), deps())
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.authenticated, false)
+  assert.equal(body.error, undefined)
+})
+
+test("api: settings store failure is unavailable, not not_configured", async () => {
+  const { store, cookies } = await authed()
+  const broken = {
+    ...store,
+    getSettings: async () => {
+      throw new Error("relation highlight_settings does not exist")
+    },
+  }
+  const response = await handleGetSettings(
+    request("/api/settings", { cookies }),
+    deps({ store: broken })
+  )
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error, "unavailable")
+})
+
 test("auth: valid session can read settings", async () => {
   const { store, cookies } = await authed()
   const response = await handleGetSettings(
