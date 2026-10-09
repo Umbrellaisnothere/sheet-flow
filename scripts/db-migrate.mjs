@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import postgres from "postgres"
 
+import { describeDatabaseTarget, hostedMigrateRequested } from "./db-target.mjs"
 import { loadLocalEnv } from "./load-local-env.mjs"
 
 loadLocalEnv()
@@ -17,6 +18,23 @@ if (!url) {
   )
   process.exit(1)
 }
+
+let target
+try {
+  target = describeDatabaseTarget(url)
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "DATABASE_URL is invalid")
+  process.exit(1)
+}
+
+if (hostedMigrateRequested() && !target.hosted) {
+  console.error(
+    "Refusing to migrate a loopback database while MIGRATE_HOSTED=1 or --hosted is set. Pass the hosted DATABASE_URL in the environment so .env.local cannot be used by accident."
+  )
+  process.exit(2)
+}
+
+console.log(`Migrating ${target.label}`)
 
 const schema = readFileSync(join(root, "docs", "schema.sql"), "utf8")
 const sql = postgres(url, { max: 1, onnotice: () => {} })

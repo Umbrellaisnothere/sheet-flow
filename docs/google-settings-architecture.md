@@ -8,7 +8,7 @@ Phase 1 remains the design record. This section records what Phase 2 actually sh
 
 - **Database:** two tables, `users` and `highlight_settings`, keyed by Google OIDC `sub` (`google_sub`). Email is display-only and not unique. Schema: [`docs/schema.sql`](schema.sql). Apply with `npm run db:migrate` (requires `DATABASE_URL`). Non-destructive; `CREATE TABLE IF NOT EXISTS` only.
 - **Store:** `postgres` (postgres.js) when `DATABASE_URL` is set. Unit tests use an in-memory store. `src/lib/settings/postgres.live.test.ts` hits a real database when `.env.local` has `DATABASE_URL`. Missing Google credentials still return **503** `not_configured` on the website; the highlighter does not need them.
-- **Migrate:** `npm run db:migrate` loads `.env.local` / `.env`. Schema is `CREATE TABLE IF NOT EXISTS` only.
+- **Migrate:** `npm run db:migrate` loads `.env.local` / `.env` only for variables that are not already in the environment. It prints a redacted target host. Production: `MIGRATE_HOSTED=1 DATABASE_URL="$HOSTED_DATABASE_URL" npm run db:migrate` (refuses loopback). Schema is `CREATE TABLE IF NOT EXISTS` only.
 - **OAuth:** authorization code + PKCE S256, scopes `openid email profile` only. ID token verified with Google JWKS (`iss`, `aud`, `exp`, `nonce`). Google access tokens are discarded. Client secret stays server-side.
 - **Session:** encrypted JWE cookie `fc_session` (`dir` + `A256GCM` via `jose`), HttpOnly, SameSite=Lax, Secure in production / HTTPS, 7-day lifetime. Payload: `{ sub, email, exp }`. Short-lived `fc_oauth` cookie holds `state`, `nonce`, and `code_verifier`.
 - **Optimistic concurrency:** `PUT /api/settings` accepts optional `baseUpdatedAt`. Mismatch → **409** with the current row. The server always stamps `updatedAt` in UTC ISO-8601.

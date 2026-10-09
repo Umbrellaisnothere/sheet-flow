@@ -104,7 +104,7 @@ The highlighter demo does not need Google or Postgres. Optional **website** sign
 1. Copy `.env.example` to `.env.local` and fill the server-only variables. Never prefix them with `NEXT_PUBLIC_`.
 2. Create a Google Cloud **Web** OAuth client. Authorised origin `http://127.0.0.1:43173`. Redirect URI `http://127.0.0.1:43173/api/auth/google/callback`. Scopes: `openid`, `email`, `profile`.
 3. Provision Postgres (Neon, Vercel Postgres, or local) and set `DATABASE_URL`.
-4. Apply the schema: `npm run db:migrate` (reads `.env.local`; does not drop tables)
+4. Apply the schema: `npm run db:migrate` (fills `DATABASE_URL` from `.env.local` only if it is not already in the environment; does not drop tables). It prints a redacted `postgres://user:***@host/db` target before applying.
 5. Generate a 32+ character `SESSION_SECRET`. Set `APP_ORIGIN=http://127.0.0.1:43173`.
 
 `npm run dev` serves `http://127.0.0.1:43173`. Sign in with Google is in the header. Signing out never blocks the playground or `/instant`. Tampermonkey colour/opacity still work with no account. Optional cloud sync talks only to that local origin (`@connect 127.0.0.1`). `/instant` has no GM network API, so Enable cloud sync stays local-only there.
@@ -116,6 +116,14 @@ Confirmed production origin: `https://sheet-flow-blond.vercel.app`. The userscri
 1. Set `APP_ORIGIN=https://sheet-flow-blond.vercel.app` on Vercel (optional; the deployment URL is used if unset).
 2. Set `GOOGLE_REDIRECT_URI` to `https://sheet-flow-blond.vercel.app/api/auth/google/callback` and register the same authorised origin and redirect in Google Cloud.
 3. Keep `/instant` as a page-script demo with no extra network grants. Tampermonkey on Sheets uses `GM_xmlhttpRequest` to the baked host after you install the file from the live site.
+
+Hosted Postgres migrate (do not use a bare `npm run db:migrate` for production — that would pick up `.env.local` if `DATABASE_URL` is unset). Pass the hosted URL in the environment so `.env.local` cannot win, require a non-loopback host, and confirm the printed target before it applies:
+
+```bash
+MIGRATE_HOSTED=1 DATABASE_URL="$HOSTED_DATABASE_URL" npm run db:migrate
+```
+
+Do not put the URL in git or in chat. The schema is `CREATE TABLE IF NOT EXISTS` only.
 
 Details: [`docs/google-settings-architecture.md`](docs/google-settings-architecture.md).
 

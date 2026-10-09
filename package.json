@@ -12,7 +12,7 @@
     "lint": "eslint",
     "sync": "node scripts/sync-assets.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
-    "test": "node --experimental-strip-types --test src/lib/sheet-engine.test.ts src/lib/settings/validate.test.ts src/lib/settings/postgres.live.test.ts src/lib/auth/safe-path.test.ts src/lib/auth/session.test.ts src/lib/auth/google-id-token.test.ts src/lib/auth/origin.test.ts src/lib/auth/api.test.ts src/lib/auth/client-boundary.test.ts apps-script/no-globals.test.mjs apps-script/code.test.mjs userscript/overlay.test.mjs userscript/compat-security.test.mjs userscript/cloud-sync.test.mjs"
+    "test": "node --experimental-strip-types --test src/lib/sheet-engine.test.ts src/lib/settings/validate.test.ts src/lib/settings/postgres.live.test.ts src/lib/auth/safe-path.test.ts src/lib/auth/session.test.ts src/lib/auth/google-id-token.test.ts src/lib/auth/origin.test.ts src/lib/auth/api.test.ts src/lib/auth/client-boundary.test.ts scripts/db-target.test.mjs apps-script/no-globals.test.mjs apps-script/code.test.mjs userscript/overlay.test.mjs userscript/compat-security.test.mjs userscript/cloud-sync.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
