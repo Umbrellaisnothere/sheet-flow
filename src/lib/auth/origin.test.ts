@@ -9,6 +9,7 @@ import {
   bakeUserscriptSyncOrigin,
   LOCAL_DEV_ORIGIN,
   parseAppOrigin,
+  publicUserscriptForOrigin,
   resolveAppOrigin,
   vercelHttpsOrigin,
 } from "./origin.ts"
@@ -157,4 +158,17 @@ test("origin: userscript bake writes only the confirmed host", () => {
   )
   assert.throws(() => bakeUserscriptSyncOrigin(userscript, "http://example.com"))
   assert.throws(() => bakeUserscriptSyncOrigin(userscript, "https://example.com/app"))
+})
+
+test("origin: production userscript bake uses the confirmed Vercel host", () => {
+  const origin = "https://sheet-flow-blond.vercel.app"
+  const baked = publicUserscriptForOrigin(userscript, origin)
+  assert.match(baked, /@connect\s+sheet-flow-blond\.vercel\.app/)
+  assert.doesNotMatch(baked, /@connect\s+127\.0\.0\.1/)
+  assert.doesNotMatch(baked, /@connect\s+\*/)
+  assert.match(
+    baked,
+    /var SYNC_ORIGIN = "https:\/\/sheet-flow-blond.vercel.app"/
+  )
+  assert.equal(publicUserscriptForOrigin(userscript, LOCAL_DEV_ORIGIN), userscript)
 })

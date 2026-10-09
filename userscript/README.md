@@ -61,7 +61,7 @@ Colour still works with no account. To copy colour and opacity across browsers:
 
 Turn it off from the same panel to go back to this-browser-only colour. First-run tip state (`seenTip`) never leaves this device. If Focus Cell is unreachable, the highlight keeps using the local colour.
 
-This uses Tampermonkey `GM_xmlhttpRequest` to `127.0.0.1` for local development. It does not send the website session cookie, and it does not use `fetch` on the Sheet. Production `@connect` is not baked in: a confirmed HTTPS Focus Cell origin must be written into the script before cross-device sync can leave localhost. `/instant` still has no GM network API, so Enable cloud sync stays local-only on that page.
+This uses Tampermonkey `GM_xmlhttpRequest` to `127.0.0.1` for local development. It does not send the website session cookie, and it does not use `fetch` on the Sheet. Production builds bake `@connect` and `SYNC_ORIGIN` to `https://sheet-flow-blond.vercel.app` in the file served from the live site. Install that copy for cross-device sync. `/instant` still has no GM network API, so Enable cloud sync stays local-only on that page.
 
 ## 4. Everyday shortcuts
 

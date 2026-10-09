@@ -126,3 +126,22 @@ export function bakeUserscriptSyncOrigin(source: string, origin: string): string
     .replace(/^\/\/ @connect\s+127\.0\.0\.1$/m, `// @connect      ${host}`)
     .replaceAll(LOCAL_SYNC_ORIGIN_LITERAL, `var SYNC_ORIGIN = "${parsed}"`)
 }
+
+/** Localhost copies stay as-is. HTTPS origins bake @connect and SYNC_ORIGIN. */
+export function publicUserscriptForOrigin(source: string, origin: string): string {
+  const parsed = parseAppOrigin(origin)
+  if (isLoopbackHost(new URL(parsed).hostname)) {
+    return source
+  }
+  return bakeUserscriptSyncOrigin(source, parsed)
+}
+
+export function resolveRuntimeAppOrigin(
+  env: OriginEnv = process.env
+): string {
+  return resolveAppOrigin(
+    env.APP_ORIGIN,
+    env.NODE_ENV || "development",
+    vercelHttpsOrigin(env)
+  )
+}
