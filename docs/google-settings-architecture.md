@@ -1,6 +1,6 @@
 # Optional Google-account settings (architecture)
 
-Status: **Phase 4 — optional Tampermonkey cloud sync.** Website Google OAuth, `fc_session`, and settings APIs are in place. The highlighter stays local-first. Cloud sync uses a short-lived revocable bearer grant issued on the Focus Cell origin, not the HttpOnly session cookie. `@connect` is `127.0.0.1` for local development only. **No production hostname is confirmed in this repo**; do not bake a placeholder host into the userscript.
+Status: **Phase 4 — optional Tampermonkey cloud sync.** Website Google OAuth, `fc_session`, and settings APIs are in place. The highlighter stays local-first. Cloud sync uses a short-lived revocable bearer grant issued on the Focus Cell origin, not the HttpOnly session cookie. `@connect` is `127.0.0.1` in the userscript source for local development. Production HTTPS origin is `https://sheet-flow-blond.vercel.app`; `npm run build` bakes that host into `public/sheets-focus-cell.user.js`.
 
 Phase 1 remains the design record. This section records what Phase 2 actually shipped.
 
@@ -14,7 +14,7 @@ Phase 1 remains the design record. This section records what Phase 2 actually sh
 - **Optimistic concurrency:** `PUT /api/settings` accepts optional `baseUpdatedAt`. Mismatch → **409** with the current row. The server always stamps `updatedAt` in UTC ISO-8601.
 - **Website UI:** optional “Sign in with Google” in the header. No login wall. Cloud colour/opacity on the site are independent of the userscript chip.
 - **Tampermonkey sync:** `GM_xmlhttpRequest` with `anonymous: true` and `Authorization: Bearer`. SameSite=Lax `fc_session` is not sent from Sheets; do not rely on cookie transport. Grant is hashed in `sync_tokens` and deleted on website logout.
-- **Not implemented:** extension `chrome.identity`, production `@connect` host (blocked until an HTTPS origin is confirmed), rate limiting. Production `APP_ORIGIN` is required off Vercel and is not defaulted to localhost. On Vercel, the HTTPS deployment URL is used when `APP_ORIGIN` is unset. HTTP is rejected except for loopback development.
+- **Not implemented:** extension `chrome.identity`, rate limiting. Production `@connect` is baked at build into `public/sheets-focus-cell.user.js` from the HTTPS origin (Vercel deployment URL or `APP_ORIGIN`). Production `APP_ORIGIN` is required off Vercel and is not defaulted to localhost. HTTP is rejected except for loopback development.
 
 ### Environment variables
 

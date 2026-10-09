@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev --port 43173 --hostname 0.0.0.0",
-    "build": "next build",
+    "build": "node --experimental-strip-types scripts/bake-userscript-origin.mjs && next build",
     "start": "next start --port 43173 --hostname 0.0.0.0",
     "lint": "eslint",
     "sync": "node scripts/sync-assets.mjs",

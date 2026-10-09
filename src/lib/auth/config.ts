@@ -1,7 +1,6 @@
 import {
   allowedRequestOrigins,
-  resolveAppOrigin,
-  vercelHttpsOrigin,
+  resolveRuntimeAppOrigin,
 } from "./origin.ts"
 
 function read(name: string): string {
@@ -10,11 +9,7 @@ function read(name: string): string {
 }
 
 export function appOrigin(): string {
-  return resolveAppOrigin(
-    read("APP_ORIGIN"),
-    process.env.NODE_ENV || "development",
-    vercelHttpsOrigin(process.env)
-  )
+  return resolveRuntimeAppOrigin(process.env)
 }
 
 export function googleClientId(): string {

@@ -15,7 +15,7 @@ export const metadata = {
 
 export default function InstantPage() {
   const source = readFileSync(
-    join(process.cwd(), "userscript", "sheets-focus-cell.user.js"),
+    join(process.cwd(), "public", "sheets-focus-cell.user.js"),
     "utf8"
   )
 

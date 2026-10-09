@@ -109,17 +109,13 @@ The highlighter demo does not need Google or Postgres. Optional **website** sign
 
 `npm run dev` serves `http://127.0.0.1:43173`. Sign in with Google is in the header. Signing out never blocks the playground or `/instant`. Tampermonkey colour/opacity still work with no account. Optional cloud sync talks only to that local origin (`@connect 127.0.0.1`). `/instant` has no GM network API, so Enable cloud sync stays local-only there.
 
-### Production cloud sync (blocked until a host is confirmed)
+### Production cloud sync
 
-This repo does **not** contain a production domain. Do not invent one. Before cross-device sync can run outside localhost:
+Confirmed production origin: `https://sheet-flow-blond.vercel.app`. The userscript **source** stays on localhost for local development. `npm run build` bakes `@connect` and `SYNC_ORIGIN` into `public/sheets-focus-cell.user.js` from `APP_ORIGIN` or the Vercel HTTPS deployment URL. Copy/download from the live site uses that baked file. Never `@connect *`.
 
-1. Choose the real HTTPS origin (no path, query, fragment, or credentials), e.g. `https://<confirmed-host>`.
-2. Set `APP_ORIGIN` to that origin. Production will not fall back to `http://127.0.0.1:43173`. On Vercel, you can omit `APP_ORIGIN` and the HTTPS deployment URL is used automatically.
-3. Set `GOOGLE_REDIRECT_URI` to `https://<confirmed-host>/api/auth/google/callback` and register the same authorised origin and redirect in Google Cloud.
-4. In `userscript/sheets-focus-cell.user.js`, set `@connect` to the hostname only (never `*`) and `SYNC_ORIGIN` to the same HTTPS origin. `bakeUserscriptSyncOrigin()` in `src/lib/auth/origin.ts` is the tested transform. Then `npm run sync`.
-5. Keep `/instant` as a page-script demo with no extra network grants.
-
-Until that origin exists, local `APP_ORIGIN=http://127.0.0.1:43173` is the only supported sync host.
+1. Set `APP_ORIGIN=https://sheet-flow-blond.vercel.app` on Vercel (optional; the deployment URL is used if unset).
+2. Set `GOOGLE_REDIRECT_URI` to `https://sheet-flow-blond.vercel.app/api/auth/google/callback` and register the same authorised origin and redirect in Google Cloud.
+3. Keep `/instant` as a page-script demo with no extra network grants. Tampermonkey on Sheets uses `GM_xmlhttpRequest` to the baked host after you install the file from the live site.
 
 Details: [`docs/google-settings-architecture.md`](docs/google-settings-architecture.md).
 
