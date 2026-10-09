@@ -1,6 +1,6 @@
 # Optional Google-account settings (architecture)
 
-Status: **Phase 3 — local Postgres path verified; live Google OAuth still requires Cloud credentials.** Website backend from Phase 2 is unchanged in contract. The Tampermonkey highlighter is still local-only. Do not add `GM_xmlhttpRequest` or `@connect` until a later phase.
+Status: **Phase 4 — optional Tampermonkey cloud sync.** Website Google OAuth, `fc_session`, and settings APIs are in place. The highlighter stays local-first. Cloud sync uses a short-lived revocable bearer grant issued on the Focus Cell origin, not the HttpOnly session cookie. `@connect` is `127.0.0.1` for local development only.
 
 Phase 1 remains the design record. This section records what Phase 2 actually shipped.
 
@@ -13,7 +13,8 @@ Phase 1 remains the design record. This section records what Phase 2 actually sh
 - **Session:** encrypted JWE cookie `fc_session` (`dir` + `A256GCM` via `jose`), HttpOnly, SameSite=Lax, Secure in production / HTTPS, 7-day lifetime. Payload: `{ sub, email, exp }`. Short-lived `fc_oauth` cookie holds `state`, `nonce`, and `code_verifier`.
 - **Optimistic concurrency:** `PUT /api/settings` accepts optional `baseUpdatedAt`. Mismatch → **409** with the current row. The server always stamps `updatedAt` in UTC ISO-8601.
 - **Website UI:** optional “Sign in with Google” in the header. No login wall. Cloud colour/opacity on the site are independent of the userscript chip.
-- **Not implemented:** Tampermonkey network access, cross-device highlighter sync, extension `chrome.identity`, production deploy, rate limiting.
+- **Tampermonkey sync:** `GM_xmlhttpRequest` with `anonymous: true` and `Authorization: Bearer`. SameSite=Lax `fc_session` is not sent from Sheets; do not rely on cookie transport. Grant is hashed in `sync_tokens` and deleted on website logout.
+- **Not implemented:** extension `chrome.identity`, production `@connect` host, rate limiting.
 
 ### Environment variables
 

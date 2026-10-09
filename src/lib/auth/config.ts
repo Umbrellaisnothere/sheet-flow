@@ -59,6 +59,8 @@ export function isAllowedOrigin(origin: string | null): boolean {
 
 export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 export const OAUTH_MAX_AGE_SECONDS = 10 * 60
+export const SYNC_REQUEST_MAX_AGE_SECONDS = 10 * 60
+export const SYNC_TOKEN_MAX_AGE_SECONDS = SESSION_MAX_AGE_SECONDS
 export const SESSION_COOKIE = "fc_session"
 export const OAUTH_COOKIE = "fc_oauth"
 

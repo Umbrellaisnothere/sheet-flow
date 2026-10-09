@@ -8,6 +8,9 @@ import {
   handleLogout,
   handlePutSettings,
   handleSession,
+  handleSyncApprove,
+  handleSyncPoll,
+  handleSyncPrepare,
   type HandlerDeps,
 } from "./handlers.ts"
 import { cookieHeaderFromMap, cookiesFromResponse } from "./cookies.ts"
@@ -572,4 +575,245 @@ test("oauth: callback replay without pending cookie fails", async () => {
     deps({ store, google })
   )
   assert.match(second.headers.get("location") ?? "", /auth=expired/)
+})
+
+test("sync: prepare then approve issues a bearer that can read settings", async () => {
+  const { store, cookies } = await authed()
+  const prepared = await handleSyncPrepare(
+    request("/api/sync/prepare", { method: "POST" }),
+    deps({ store })
+  )
+  assert.equal(prepared.status, 200)
+  const begin = await prepared.json()
+  assert.equal(typeof begin.requestId, "string")
+  assert.equal(typeof begin.pollSecret, "string")
+  assert.match(begin.authorizePath, /^\/sync\?request=/)
+  const pending = await handleSyncPoll(
+    request("/api/sync/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: begin.requestId,
+        pollSecret: begin.pollSecret,
+      }),
+    }),
+    deps({ store })
+  )
+  assert.deepEqual(await pending.json(), { status: "pending" })
+  const approve = await handleSyncApprove(
+    request("/api/sync/approve", {
+      method: "POST",
+      cookies,
+      origin: ORIGIN,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: begin.requestId }),
+    }),
+    deps({ store })
+  )
+  assert.equal(approve.status, 200)
+  const polled = await handleSyncPoll(
+    request("/api/sync/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: begin.requestId,
+        pollSecret: begin.pollSecret,
+      }),
+    }),
+    deps({ store })
+  )
+  const granted = await polled.json()
+  assert.equal(granted.status, "ready")
+  assert.match(granted.token, /^fcs_/)
+  const session = await handleSession(
+    request("/api/auth/session", {
+      headers: { authorization: `Bearer ${granted.token}` },
+    }),
+    deps({ store })
+  )
+  assert.deepEqual(await session.json(), {
+    authenticated: true,
+    email: "a@example.com",
+  })
+  const settings = await handleGetSettings(
+    request("/api/settings", {
+      headers: { authorization: `Bearer ${granted.token}` },
+    }),
+    deps({ store })
+  )
+  assert.equal(settings.status, 200)
+  const put = await handlePutSettings(
+    request("/api/settings", {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${granted.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ color: "#ffffff", opacity: "0.3" }),
+    }),
+    deps({ store })
+  )
+  assert.equal(put.status, 200)
+  assert.equal((await put.json()).color, "#ffffff")
+})
+
+test("sync: cookie PUT still requires Origin; bearer PUT does not", async () => {
+  const { store, cookies } = await authed()
+  const forbidden = await handlePutSettings(
+    request("/api/settings", {
+      method: "PUT",
+      cookies,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ color: "#ffffff", opacity: "0.3" }),
+    }),
+    deps({ store })
+  )
+  assert.equal(forbidden.status, 403)
+})
+
+test("sync: a bearer cannot read another account", async () => {
+  const a = await authed()
+  const b = await authed(a.store, { sub: "sub-b", email: "b@example.com" })
+  await a.store.updateSettings("sub-a", "#217346", "0.2")
+  const prepared = await handleSyncPrepare(
+    request("/api/sync/prepare", { method: "POST" }),
+    deps({ store: a.store })
+  )
+  const begin = await prepared.json()
+  await handleSyncApprove(
+    request("/api/sync/approve", {
+      method: "POST",
+      cookies: b.cookies,
+      origin: ORIGIN,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: begin.requestId }),
+    }),
+    deps({ store: a.store })
+  )
+  const polled = await handleSyncPoll(
+    request("/api/sync/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: begin.requestId,
+        pollSecret: begin.pollSecret,
+      }),
+    }),
+    deps({ store: a.store })
+  )
+  const granted = await polled.json()
+  const settings = await handleGetSettings(
+    request("/api/settings", {
+      headers: { authorization: `Bearer ${granted.token}` },
+    }),
+    deps({ store: a.store })
+  )
+  const body = await settings.json()
+  assert.equal(body.color, "#1a73e8")
+})
+
+test("sync: website logout revokes highlighter tokens", async () => {
+  const { store, cookies } = await authed()
+  const prepared = await handleSyncPrepare(
+    request("/api/sync/prepare", { method: "POST" }),
+    deps({ store })
+  )
+  const begin = await prepared.json()
+  await handleSyncApprove(
+    request("/api/sync/approve", {
+      method: "POST",
+      cookies,
+      origin: ORIGIN,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: begin.requestId }),
+    }),
+    deps({ store })
+  )
+  const polled = await handleSyncPoll(
+    request("/api/sync/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: begin.requestId,
+        pollSecret: begin.pollSecret,
+      }),
+    }),
+    deps({ store })
+  )
+  const token = (await polled.json()).token
+  await handleLogout(
+    request("/api/auth/logout", { method: "POST", cookies, origin: ORIGIN }),
+    deps({ store })
+  )
+  const settings = await handleGetSettings(
+    request("/api/settings", {
+      headers: { authorization: `Bearer ${token}` },
+    }),
+    deps({ store })
+  )
+  assert.equal(settings.status, 401)
+})
+
+test("sync: approve without a website session is rejected", async () => {
+  const store = createMemoryStore()
+  const prepared = await handleSyncPrepare(
+    request("/api/sync/prepare", { method: "POST" }),
+    deps({ store })
+  )
+  const begin = await prepared.json()
+  const approve = await handleSyncApprove(
+    request("/api/sync/approve", {
+      method: "POST",
+      origin: ORIGIN,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: begin.requestId }),
+    }),
+    deps({ store })
+  )
+  assert.equal(approve.status, 401)
+})
+
+test("sync: request bodies cannot select another google_sub", async () => {
+  const { store, cookies } = await authed()
+  const prepared = await handleSyncPrepare(
+    request("/api/sync/prepare", { method: "POST" }),
+    deps({ store })
+  )
+  const begin = await prepared.json()
+  await handleSyncApprove(
+    request("/api/sync/approve", {
+      method: "POST",
+      cookies,
+      origin: ORIGIN,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: begin.requestId,
+        google_sub: "attacker-sub",
+        email: "evil@example.com",
+      }),
+    }),
+    deps({ store })
+  )
+  const polled = await handleSyncPoll(
+    request("/api/sync/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: begin.requestId,
+        pollSecret: begin.pollSecret,
+      }),
+    }),
+    deps({ store })
+  )
+  const token = (await polled.json()).token
+  const settings = await handleGetSettings(
+    request("/api/settings", {
+      headers: { authorization: `Bearer ${token}` },
+    }),
+    deps({ store })
+  )
+  const body = await settings.json()
+  assert.equal(body.color, "#1a73e8")
+  const user = await store.getUserBySub("attacker-sub")
+  assert.equal(user, null)
 })

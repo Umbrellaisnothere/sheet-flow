@@ -19,6 +19,16 @@ export function createMemoryStore(now: () => Date = () => new Date()): AccountSt
   const users = new Map<string, UserRecord>()
   const settings = new Map<string, SettingsRecord>()
   const pendingOAuth = new Map<string, PendingOAuth & { expiresAt: number }>()
+  type MemorySyncRequest = {
+    pollSecretHash: string
+    googleSub: string | null
+    email: string
+    issuedToken: string | null
+    tokenExpiresAt: number
+    expiresAt: number
+  }
+  const syncRequests = new Map<string, MemorySyncRequest>()
+  const syncTokens = new Map<string, { googleSub: string; email: string; expiresAt: number }>()
 
   return {
     async upsertUserBySub(sub, email) {
@@ -97,6 +107,70 @@ export function createMemoryStore(now: () => Date = () => new Date()): AccountSt
         nonce: row.nonce,
         codeVerifier: row.codeVerifier,
         next: row.next,
+      }
+    },
+    async createSyncRequest(input) {
+      syncRequests.set(input.requestId, {
+        pollSecretHash: input.pollSecretHash,
+        googleSub: null,
+        email: "",
+        issuedToken: null,
+        tokenExpiresAt: 0,
+        expiresAt: input.expiresAt.getTime(),
+      })
+    },
+    async approveSyncRequest(input) {
+      const now = (input.now ?? new Date()).getTime()
+      const row = syncRequests.get(input.requestId)
+      if (!row || row.expiresAt <= now) {
+        return false
+      }
+      row.googleSub = input.googleSub
+      row.email = input.email
+      row.issuedToken = input.issuedToken
+      row.tokenExpiresAt = input.tokenExpiresAt.getTime()
+      syncTokens.set(input.tokenHash, {
+        googleSub: input.googleSub,
+        email: input.email,
+        expiresAt: input.tokenExpiresAt.getTime(),
+      })
+      return true
+    },
+    async pollSyncRequest(input) {
+      const now = (input.now ?? new Date()).getTime()
+      const row = syncRequests.get(input.requestId)
+      if (!row || row.expiresAt <= now) {
+        return { status: "missing" }
+      }
+      if (row.pollSecretHash !== input.pollSecretHash) {
+        return { status: "missing" }
+      }
+      if (!row.issuedToken) {
+        return { status: "pending" }
+      }
+      const token = row.issuedToken
+      const email = row.email
+      const expiresAt = new Date(row.tokenExpiresAt).toISOString()
+      row.issuedToken = null
+      return { status: "ready", token, email, expiresAt }
+    },
+    async getSyncToken(tokenHash, now = new Date()) {
+      const row = syncTokens.get(tokenHash)
+      if (!row || row.expiresAt <= now.getTime()) {
+        return null
+      }
+      return { googleSub: row.googleSub, email: row.email }
+    },
+    async deleteSyncTokensForSub(googleSub) {
+      for (const [hash, row] of syncTokens) {
+        if (row.googleSub === googleSub) {
+          syncTokens.delete(hash)
+        }
+      }
+      for (const [id, row] of syncRequests) {
+        if (row.googleSub === googleSub) {
+          syncRequests.delete(id)
+        }
       }
     },
   }

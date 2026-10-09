@@ -9,6 +9,9 @@ import {
   handleLogout,
   handlePutSettings,
   handleSession,
+  handleSyncApprove,
+  handleSyncPoll,
+  handleSyncPrepare,
 } from "../auth/handlers.ts"
 import { cookieHeaderFromMap, cookiesFromResponse } from "../auth/cookies.ts"
 import { SESSION_COOKIE } from "../auth/config.ts"
@@ -81,18 +84,30 @@ async function signIn(
   return { start, callback, cookies: cookiesFromResponse(callback) }
 }
 
-test("live postgres: schema has users, highlight_settings, and oauth_pending", { skip: !live }, async () => {
+test("live postgres: schema has identity, settings, oauth pending, and sync tables", { skip: !live }, async () => {
   const sql = postgres(databaseUrl, { max: 1 })
   try {
     const rows = await sql<{ tablename: string }[]>`
       SELECT tablename FROM pg_tables
       WHERE schemaname = 'public'
-        AND tablename IN ('users', 'highlight_settings', 'oauth_pending')
+        AND tablename IN (
+          'users',
+          'highlight_settings',
+          'oauth_pending',
+          'sync_requests',
+          'sync_tokens'
+        )
       ORDER BY tablename
     `
     assert.deepEqual(
       rows.map((row) => row.tablename),
-      ["highlight_settings", "oauth_pending", "users"]
+      [
+        "highlight_settings",
+        "oauth_pending",
+        "sync_requests",
+        "sync_tokens",
+        "users",
+      ]
     )
   } finally {
     await sql.end({ timeout: 5 })
@@ -415,4 +430,64 @@ test("live postgres: OAuth next rejects open redirects", { skip: !live }, async 
     deps
   )
   assert.match(callback.headers.get("location") ?? "", /^http:\/\/127\.0\.0\.1:43173\/instant/)
+})
+
+test("live postgres: highlighter sync token is revocable and scoped", { skip: !live }, async () => {
+  const store = createPostgresStore(databaseUrl)
+  const identity = {
+    sub: "phase4-sub-sync",
+    email: "phase4-sync@example.com",
+  }
+  const { cookies } = await signIn(store, identity)
+  const prepared = await handleSyncPrepare(
+    request("/api/sync/prepare", { method: "POST" }),
+    { env: env(), store }
+  )
+  const begin = await prepared.json()
+  const approve = await handleSyncApprove(
+    request("/api/sync/approve", {
+      method: "POST",
+      cookies,
+      origin: ORIGIN,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: begin.requestId }),
+    }),
+    { env: env(), store }
+  )
+  assert.equal(approve.status, 200)
+  const polled = await handleSyncPoll(
+    request("/api/sync/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: begin.requestId,
+        pollSecret: begin.pollSecret,
+      }),
+    }),
+    { env: env(), store }
+  )
+  const granted = await polled.json()
+  assert.match(granted.token, /^fcs_/)
+  const settings = await handleGetSettings(
+    request("/api/settings", {
+      headers: { authorization: `Bearer ${granted.token}` },
+    }),
+    { env: env(), store }
+  )
+  assert.equal(settings.status, 200)
+  await handleLogout(
+    request("/api/auth/logout", {
+      method: "POST",
+      cookies,
+      origin: ORIGIN,
+    }),
+    { env: env(), store }
+  )
+  const after = await handleGetSettings(
+    request("/api/settings", {
+      headers: { authorization: `Bearer ${granted.token}` },
+    }),
+    { env: env(), store }
+  )
+  assert.equal(after.status, 401)
 })

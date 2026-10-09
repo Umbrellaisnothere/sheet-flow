@@ -3,6 +3,8 @@ import {
   OAUTH_MAX_AGE_SECONDS,
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
+  SYNC_REQUEST_MAX_AGE_SECONDS,
+  SYNC_TOKEN_MAX_AGE_SECONDS,
   envIsConfigured,
   readAuthEnv,
   type AuthEnv,
@@ -21,6 +23,7 @@ import {
   randomToken,
   requestOrigin,
   safeEqual,
+  sha256Hex,
 } from "./oauth.ts"
 import { sealOAuth, sealSession, unsealOAuth, unsealSession } from "./session.ts"
 import { safeNextPath } from "./safe-path.ts"
@@ -72,6 +75,36 @@ function appRedirect(
     url.searchParams.set("auth", auth)
   }
   return redirectTo(url.toString(), extra)
+}
+
+function parseBearerToken(request: Request): string | undefined {
+  const header = request.headers.get("authorization")
+  if (!header) {
+    return undefined
+  }
+  const match = /^Bearer\s+(\S+)$/i.exec(header.trim())
+  return match?.[1]
+}
+
+async function identityFromRequest(
+  request: Request,
+  env: AuthEnv,
+  store: AccountStore | null,
+  now: Date
+): Promise<{ sub: string; email: string; via: "cookie" | "bearer" } | null> {
+  const bearer = parseBearerToken(request)
+  if (bearer && store) {
+    const row = await store.getSyncToken(sha256Hex(bearer), now)
+    if (row) {
+      return { sub: row.googleSub, email: row.email, via: "bearer" }
+    }
+  }
+  const cookies = parseCookies(request.headers.get("cookie"))
+  const session = await unsealSession(env.sessionSecret, cookies[SESSION_COOKIE], now)
+  if (!session) {
+    return null
+  }
+  return { sub: session.sub, email: session.email, via: "cookie" }
 }
 
 function requireConfigured(
@@ -253,13 +286,26 @@ export async function handleLogout(
   request: Request,
   deps: HandlerDeps = {}
 ): Promise<Response> {
-  const { env } = resolve(deps)
+  const { env, store, now } = resolve(deps)
   if (request.method !== "POST") {
     return jsonError(405, "method_not_allowed")
   }
   const origin = requestOrigin(request)
   if (!originAllowed(origin, env.appOrigin)) {
     return jsonError(403, "forbidden")
+  }
+  const cookies = parseCookies(request.headers.get("cookie"))
+  const session = await unsealSession(
+    env.sessionSecret,
+    cookies[SESSION_COOKIE],
+    now()
+  )
+  if (session && store) {
+    try {
+      await store.deleteSyncTokensForSub(session.sub)
+    } catch {
+      // Cookie still clears; highlighter falls back to local settings.
+    }
   }
   const headers = new Headers()
   clearSessionCookies(headers, env)
@@ -275,18 +321,13 @@ export async function handleSession(
   if (blocked) {
     return blocked
   }
-  const cookies = parseCookies(request.headers.get("cookie"))
-  const session = await unsealSession(
-    env.sessionSecret,
-    cookies[SESSION_COOKIE],
-    now()
-  )
-  if (!session) {
+  const identity = await identityFromRequest(request, env, store, now())
+  if (!identity) {
     return json({ authenticated: false })
   }
   return json({
     authenticated: true,
-    email: session.email,
+    email: identity.email,
   })
 }
 
@@ -302,20 +343,15 @@ export async function handleGetSettings(
   if (!store) {
     return jsonError(503, "not_configured")
   }
-  const cookies = parseCookies(request.headers.get("cookie"))
-  const session = await unsealSession(
-    env.sessionSecret,
-    cookies[SESSION_COOKIE],
-    now()
-  )
-  if (!session) {
+  const identity = await identityFromRequest(request, env, store, now())
+  if (!identity) {
     return jsonError(401, "unauthenticated")
   }
   try {
-    let settings = await store.getSettings(session.sub)
+    let settings = await store.getSettings(identity.sub)
     if (!settings) {
-      await store.upsertUserBySub(session.sub, session.email)
-      settings = await store.ensureDefaultSettings(session.sub)
+      await store.upsertUserBySub(identity.sub, identity.email)
+      settings = await store.ensureDefaultSettings(identity.sub)
     }
     return json({
       color: settings.color,
@@ -339,18 +375,15 @@ export async function handlePutSettings(
   if (!store) {
     return jsonError(503, "not_configured")
   }
-  const origin = requestOrigin(request)
-  if (!originAllowed(origin, env.appOrigin)) {
-    return jsonError(403, "forbidden")
-  }
-  const cookies = parseCookies(request.headers.get("cookie"))
-  const session = await unsealSession(
-    env.sessionSecret,
-    cookies[SESSION_COOKIE],
-    now()
-  )
-  if (!session) {
+  const identity = await identityFromRequest(request, env, store, now())
+  if (!identity) {
     return jsonError(401, "unauthenticated")
+  }
+  if (identity.via === "cookie") {
+    const origin = requestOrigin(request)
+    if (!originAllowed(origin, env.appOrigin)) {
+      return jsonError(403, "forbidden")
+    }
   }
 
   let body: unknown
@@ -380,13 +413,13 @@ export async function handlePutSettings(
   }
 
   try {
-    let existing = await store.getSettings(session.sub)
+    let existing = await store.getSettings(identity.sub)
     if (!existing) {
-      await store.upsertUserBySub(session.sub, session.email)
-      existing = await store.ensureDefaultSettings(session.sub)
+      await store.upsertUserBySub(identity.sub, identity.email)
+      existing = await store.ensureDefaultSettings(identity.sub)
     }
     const result = await store.updateSettings(
-      session.sub,
+      identity.sub,
       color,
       opacity,
       baseUpdatedAt
@@ -415,4 +448,159 @@ export async function handlePutSettings(
   } catch {
     return jsonError(503, "unavailable")
   }
+}
+
+export async function handleSyncPrepare(
+  request: Request,
+  deps: HandlerDeps = {}
+): Promise<Response> {
+  const { env, store, now } = resolve(deps)
+  const blocked = requireConfigured(env, store, false)
+  if (blocked) {
+    return blocked
+  }
+  if (!store) {
+    return jsonError(503, "not_configured")
+  }
+  if (request.method !== "POST") {
+    return jsonError(405, "method_not_allowed")
+  }
+  const requestId = randomToken(18)
+  const pollSecret = randomToken()
+  const expiresAt = new Date(now().getTime() + SYNC_REQUEST_MAX_AGE_SECONDS * 1000)
+  try {
+    await store.createSyncRequest({
+      requestId,
+      pollSecretHash: sha256Hex(pollSecret),
+      expiresAt,
+    })
+  } catch {
+    return jsonError(503, "unavailable")
+  }
+  return json({
+    requestId,
+    pollSecret,
+    authorizePath: `/sync?request=${encodeURIComponent(requestId)}`,
+  })
+}
+
+export async function handleSyncPoll(
+  request: Request,
+  deps: HandlerDeps = {}
+): Promise<Response> {
+  const { env, store, now } = resolve(deps)
+  const blocked = requireConfigured(env, store, false)
+  if (blocked) {
+    return blocked
+  }
+  if (!store) {
+    return jsonError(503, "not_configured")
+  }
+  if (request.method !== "POST") {
+    return jsonError(405, "method_not_allowed")
+  }
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return jsonError(400, "invalid")
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return jsonError(400, "invalid")
+  }
+  const payload = body as Record<string, unknown>
+  if (
+    typeof payload.requestId !== "string" ||
+    !payload.requestId ||
+    typeof payload.pollSecret !== "string" ||
+    !payload.pollSecret
+  ) {
+    return jsonError(400, "invalid")
+  }
+  try {
+    const result = await store.pollSyncRequest({
+      requestId: payload.requestId,
+      pollSecretHash: sha256Hex(payload.pollSecret),
+      now: now(),
+    })
+    if (result.status === "missing") {
+      return json({ status: "expired" }, 404)
+    }
+    if (result.status === "pending") {
+      return json({ status: "pending" })
+    }
+    return json({
+      status: "ready",
+      token: result.token,
+      email: result.email,
+      expiresAt: result.expiresAt,
+    })
+  } catch {
+    return jsonError(503, "unavailable")
+  }
+}
+
+export async function handleSyncApprove(
+  request: Request,
+  deps: HandlerDeps = {}
+): Promise<Response> {
+  const { env, store, now } = resolve(deps)
+  const blocked = requireConfigured(env, store, false)
+  if (blocked) {
+    return blocked
+  }
+  if (!store) {
+    return jsonError(503, "not_configured")
+  }
+  if (request.method !== "POST") {
+    return jsonError(405, "method_not_allowed")
+  }
+  const origin = requestOrigin(request)
+  if (!originAllowed(origin, env.appOrigin)) {
+    return jsonError(403, "forbidden")
+  }
+  const cookies = parseCookies(request.headers.get("cookie"))
+  const session = await unsealSession(
+    env.sessionSecret,
+    cookies[SESSION_COOKIE],
+    now()
+  )
+  if (!session) {
+    return jsonError(401, "unauthenticated")
+  }
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return jsonError(400, "invalid")
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return jsonError(400, "invalid")
+  }
+  const payload = body as Record<string, unknown>
+  if (typeof payload.requestId !== "string" || !payload.requestId) {
+    return jsonError(400, "invalid")
+  }
+  const issuedToken = `fcs_${randomToken()}`
+  const tokenExpiresAt = new Date(
+    now().getTime() + SYNC_TOKEN_MAX_AGE_SECONDS * 1000
+  )
+  try {
+    await store.upsertUserBySub(session.sub, session.email)
+    const ok = await store.approveSyncRequest({
+      requestId: payload.requestId,
+      googleSub: session.sub,
+      email: session.email,
+      issuedToken,
+      tokenHash: sha256Hex(issuedToken),
+      tokenExpiresAt,
+      now: now(),
+    })
+    if (!ok) {
+      return jsonError(404, "expired")
+    }
+  } catch {
+    return jsonError(503, "unavailable")
+  }
+  return json({ ok: true })
 }

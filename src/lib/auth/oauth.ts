@@ -21,6 +21,10 @@ export function pkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url")
 }
 
+export function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
+}
+
 export function safeEqual(left: string, right: string): boolean {
   const a = Buffer.from(left)
   const b = Buffer.from(right)

@@ -216,5 +216,113 @@ export function createPostgresStore(databaseUrl: string): AccountStore {
       }
       return pending
     },
+    async createSyncRequest(input) {
+      await sql`DELETE FROM sync_requests WHERE expires_at <= now()`
+      await sql`
+        INSERT INTO sync_requests (request_id, poll_secret_hash, expires_at)
+        VALUES (${input.requestId}, ${input.pollSecretHash}, ${input.expiresAt})
+        ON CONFLICT (request_id) DO UPDATE
+        SET poll_secret_hash = EXCLUDED.poll_secret_hash,
+            google_sub = NULL,
+            email = '',
+            issued_token = NULL,
+            token_hash = NULL,
+            token_expires_at = NULL,
+            expires_at = EXCLUDED.expires_at
+      `
+    },
+    async approveSyncRequest(input) {
+      const now = input.now ?? new Date()
+      return sql.begin(async (tx) => {
+        const rows = await tx<
+          { request_id: string }[]
+        >`
+          SELECT request_id FROM sync_requests
+          WHERE request_id = ${input.requestId}
+            AND expires_at > ${now}
+          FOR UPDATE
+        `
+        if (!rows[0]) {
+          return false
+        }
+        await tx`
+          INSERT INTO sync_tokens (token_hash, google_sub, email, expires_at)
+          VALUES (
+            ${input.tokenHash},
+            ${input.googleSub},
+            ${input.email},
+            ${input.tokenExpiresAt}
+          )
+          ON CONFLICT (token_hash) DO UPDATE
+          SET google_sub = EXCLUDED.google_sub,
+              email = EXCLUDED.email,
+              expires_at = EXCLUDED.expires_at
+        `
+        await tx`
+          UPDATE sync_requests
+          SET google_sub = ${input.googleSub},
+              email = ${input.email},
+              issued_token = ${input.issuedToken},
+              token_hash = ${input.tokenHash},
+              token_expires_at = ${input.tokenExpiresAt}
+          WHERE request_id = ${input.requestId}
+        `
+        return true
+      })
+    },
+    async pollSyncRequest(input) {
+      const now = input.now ?? new Date()
+      return sql.begin(async (tx) => {
+        const rows = await tx<
+          {
+            issued_token: string | null
+            email: string
+            token_expires_at: Date | null
+          }[]
+        >`
+          SELECT issued_token, email, token_expires_at
+          FROM sync_requests
+          WHERE request_id = ${input.requestId}
+            AND poll_secret_hash = ${input.pollSecretHash}
+            AND expires_at > ${now}
+          FOR UPDATE
+        `
+        const row = rows[0]
+        if (!row) {
+          return { status: "missing" as const }
+        }
+        if (!row.issued_token || !row.token_expires_at) {
+          return { status: "pending" as const }
+        }
+        const token = row.issued_token
+        const email = row.email
+        const expiresAt = toIso(row.token_expires_at)
+        await tx`
+          UPDATE sync_requests
+          SET issued_token = NULL
+          WHERE request_id = ${input.requestId}
+        `
+        return { status: "ready" as const, token, email, expiresAt }
+      })
+    },
+    async getSyncToken(tokenHash, now = new Date()) {
+      const rows = await sql<
+        { google_sub: string; email: string }[]
+      >`
+        SELECT google_sub, email
+        FROM sync_tokens
+        WHERE token_hash = ${tokenHash}
+          AND expires_at > ${now}
+      `
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+      return { googleSub: row.google_sub, email: row.email }
+    },
+    async deleteSyncTokensForSub(googleSub) {
+      await sql`DELETE FROM sync_tokens WHERE google_sub = ${googleSub}`
+      await sql`DELETE FROM sync_requests WHERE google_sub = ${googleSub}`
+    },
   }
 }

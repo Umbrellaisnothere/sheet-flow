@@ -31,3 +31,31 @@ CREATE TABLE IF NOT EXISTS oauth_pending (
 
 CREATE INDEX IF NOT EXISTS oauth_pending_expires_at_idx
   ON oauth_pending (expires_at);
+
+-- One-time highlighter sync handshake. issued_token is cleared after poll.
+CREATE TABLE IF NOT EXISTS sync_requests (
+  request_id TEXT PRIMARY KEY,
+  poll_secret_hash TEXT NOT NULL,
+  google_sub TEXT REFERENCES users(google_sub) ON DELETE CASCADE,
+  email TEXT NOT NULL DEFAULT '',
+  issued_token TEXT,
+  token_hash TEXT,
+  token_expires_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sync_requests_expires_at_idx
+  ON sync_requests (expires_at);
+
+-- Revocable highlighter sync tokens. Store only the SHA-256 hash.
+CREATE TABLE IF NOT EXISTS sync_tokens (
+  token_hash TEXT PRIMARY KEY,
+  google_sub TEXT NOT NULL REFERENCES users(google_sub) ON DELETE CASCADE,
+  email TEXT NOT NULL DEFAULT '',
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sync_tokens_google_sub_idx
+  ON sync_tokens (google_sub);

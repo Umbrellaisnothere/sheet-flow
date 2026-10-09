@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Focus Cell for Google Sheets
 // @namespace    https://github.com/sheets-focus-cell
-// @version      1.5.0
+// @version      1.6.0
 // @description  Excel-style active row and column highlight in Google Sheets, drawn in the browser so there is no Apps Script delay.
 // @author       sheets-focus-cell
 // @match        https://docs.google.com/spreadsheets/*
@@ -11,6 +11,8 @@
 // @grant        GM_setValue
 // @grant        GM.getValue
 // @grant        GM.setValue
+// @grant        GM_xmlhttpRequest
+// @connect      127.0.0.1
 // @inject-into  auto
 // ==/UserScript==
 
@@ -46,6 +48,9 @@
   }
 
   var STORAGE_KEY = "sheets-focus-cell";
+  var SYNC_KEY = "sheets-focus-cell-sync";
+  var SYNC_ORIGIN = "http://127.0.0.1:43173";
+  var SYNC_TIMEOUT_MS = 8000;
   var OPACITY_MIN = 0.05;
   var OPACITY_MAX = 0.5;
   var PRESETS = [
@@ -93,6 +98,19 @@
   var observed = null;
   var panelOpen = false;
   var opacityDragging = false;
+  var syncEnabled = false;
+  var syncToken = "";
+  var syncEmail = "";
+  var cloudUpdatedAt = "";
+  var syncStatus = "";
+  var syncBusy = false;
+  var applyingCloud = false;
+  var cloudPushTimer = 0;
+  var pollTimer = 0;
+  var syncLine = null;
+  var syncToggle = null;
+  var syncOpen = null;
+  var syncNote = null;
 
   function normalizeColor(value) {
     var text = String(value || "")
@@ -193,6 +211,348 @@
     }
   }
 
+  function saveSyncState() {
+    var payload = JSON.stringify({
+      enabled: syncEnabled === true,
+      token: syncToken || "",
+      email: syncEmail || "",
+      cloudUpdatedAt: cloudUpdatedAt || "",
+    });
+    try {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(SYNC_KEY, payload);
+      }
+    } catch {
+      // Ignore.
+    }
+    try {
+      if (typeof GM !== "undefined" && GM && typeof GM.setValue === "function") {
+        GM.setValue(SYNC_KEY, payload);
+      }
+    } catch {
+      // Ignore.
+    }
+  }
+
+  function applySyncRaw(raw) {
+    if (!raw) {
+      return;
+    }
+    try {
+      var saved = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (!saved || typeof saved !== "object") {
+        return;
+      }
+      syncEnabled = saved.enabled === true;
+      syncToken = typeof saved.token === "string" ? saved.token : "";
+      syncEmail = typeof saved.email === "string" ? saved.email : "";
+      cloudUpdatedAt =
+        typeof saved.cloudUpdatedAt === "string" ? saved.cloudUpdatedAt : "";
+      if (!syncToken) {
+        syncEnabled = false;
+      }
+    } catch {
+      syncEnabled = false;
+      syncToken = "";
+    }
+  }
+
+  function loadSyncState() {
+    try {
+      if (typeof GM_getValue === "function") {
+        applySyncRaw(GM_getValue(SYNC_KEY, "") || "");
+        return;
+      }
+    } catch {
+      // Try async GM next.
+    }
+    try {
+      if (
+        typeof GM !== "undefined" &&
+        GM &&
+        typeof GM.getValue === "function" &&
+        typeof Promise !== "undefined"
+      ) {
+        Promise.resolve(GM.getValue(SYNC_KEY, "")).then(
+          function (value) {
+            applySyncRaw(value || "");
+            syncPanel();
+            if (syncEnabled && syncToken) {
+              pullCloud();
+            }
+          },
+          function () {}
+        );
+      }
+    } catch {
+      // Local-only.
+    }
+  }
+
+  function gmXhr() {
+    if (typeof GM_xmlhttpRequest === "function") {
+      return GM_xmlhttpRequest;
+    }
+    if (typeof GM !== "undefined" && GM && typeof GM.xmlHttpRequest === "function") {
+      return GM.xmlHttpRequest;
+    }
+    return null;
+  }
+
+  function setSyncStatus(text) {
+    syncStatus = text || "";
+    syncPanel();
+  }
+
+  function disableCloud(message) {
+    syncEnabled = false;
+    syncToken = "";
+    syncEmail = "";
+    cloudUpdatedAt = "";
+    saveSyncState();
+    setSyncStatus(message || "Cloud sync is off. Local colour still works.");
+  }
+
+  function cloudUrl(path) {
+    if (path.indexOf("/api/") !== 0) {
+      return "";
+    }
+    return SYNC_ORIGIN + path;
+  }
+
+  function cloudRequest(method, path, body, headers, callback) {
+    var xhr = gmXhr();
+    var url = cloudUrl(path);
+    if (!xhr || !url) {
+      callback({ error: "unavailable" }, null, 0);
+      return;
+    }
+    var reqHeaders = {
+      accept: "application/json",
+    };
+    var key;
+    if (headers) {
+      for (key in headers) {
+        if (Object.prototype.hasOwnProperty.call(headers, key) && headers[key]) {
+          reqHeaders[key] = headers[key];
+        }
+      }
+    }
+    if (body) {
+      reqHeaders["content-type"] = "application/json";
+    }
+    xhr({
+      method: method,
+      url: url,
+      headers: reqHeaders,
+      data: body ? JSON.stringify(body) : undefined,
+      timeout: SYNC_TIMEOUT_MS,
+      anonymous: true,
+      onload: function (response) {
+        var status = Number(response && response.status) || 0;
+        var text = (response && response.responseText) || "";
+        var type = String((response && response.responseHeaders) || "").toLowerCase();
+        var parsed = null;
+        if (text) {
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            callback({ error: "invalid" }, null, status);
+            return;
+          }
+        }
+        if (text && type && type.indexOf("content-type") !== -1 && type.indexOf("json") === -1) {
+          callback({ error: "invalid" }, null, status);
+          return;
+        }
+        callback(null, parsed, status);
+      },
+      onerror: function () {
+        callback({ error: "network" }, null, 0);
+      },
+      ontimeout: function () {
+        callback({ error: "timeout" }, null, 0);
+      },
+    });
+  }
+
+  function authHeaders() {
+    if (!syncToken) {
+      return {};
+    }
+    return { authorization: "Bearer " + syncToken };
+  }
+
+  function applyCloudPayload(data) {
+    var color = data && normalizeColor(data.color);
+    var opacity = data && normalizeOpacity(data.opacity);
+    if (!color || !opacity) {
+      return false;
+    }
+    applyingCloud = true;
+    applyConfig({ color: color, opacity: opacity });
+    applyingCloud = false;
+    if (typeof data.updatedAt === "string" && data.updatedAt) {
+      cloudUpdatedAt = data.updatedAt;
+      saveSyncState();
+    }
+    return true;
+  }
+
+  function pullCloud() {
+    if (!syncEnabled || !syncToken || syncBusy) {
+      return;
+    }
+    syncBusy = true;
+    cloudRequest("GET", "/api/settings", null, authHeaders(), function (err, data, status) {
+      syncBusy = false;
+      if (status === 401) {
+        disableCloud("Signed out on Focus Cell. Local colour kept.");
+        return;
+      }
+      if (err || !data) {
+        setSyncStatus("Could not reach Focus Cell. Using local colour.");
+        return;
+      }
+      if (!applyCloudPayload(data)) {
+        setSyncStatus("Ignored invalid cloud settings. Local colour kept.");
+        return;
+      }
+      setSyncStatus(syncEmail ? "Synced as " + syncEmail : "Synced");
+    });
+  }
+
+  function pushCloud() {
+    if (!syncEnabled || !syncToken || applyingCloud || syncBusy) {
+      return;
+    }
+    syncBusy = true;
+    var body = {
+      color: CONFIG.color,
+      opacity: CONFIG.opacity,
+    };
+    if (cloudUpdatedAt) {
+      body.baseUpdatedAt = cloudUpdatedAt;
+    }
+    cloudRequest("PUT", "/api/settings", body, authHeaders(), function (err, data, status) {
+      syncBusy = false;
+      if (status === 401) {
+        disableCloud("Signed out on Focus Cell. Local colour kept.");
+        return;
+      }
+      if (status === 409 && data && data.settings) {
+        if (applyCloudPayload(data.settings)) {
+          setSyncStatus("Cloud colour was newer. Applied it here.");
+        }
+        return;
+      }
+      if (err || status !== 200 || !data) {
+        setSyncStatus("Could not save to Focus Cell. Local colour kept.");
+        return;
+      }
+      if (typeof data.updatedAt === "string") {
+        cloudUpdatedAt = data.updatedAt;
+        saveSyncState();
+      }
+      setSyncStatus(syncEmail ? "Synced as " + syncEmail : "Synced");
+    });
+  }
+
+  function scheduleCloudPush() {
+    if (!syncEnabled || !syncToken || applyingCloud) {
+      return;
+    }
+    if (cloudPushTimer && typeof window.clearTimeout === "function") {
+      window.clearTimeout(cloudPushTimer);
+    }
+    if (typeof window.setTimeout !== "function") {
+      pushCloud();
+      return;
+    }
+    cloudPushTimer = window.setTimeout(pushCloud, 400);
+  }
+
+  function stopPolling() {
+    if (pollTimer && typeof window.clearInterval === "function") {
+      window.clearInterval(pollTimer);
+    }
+    pollTimer = 0;
+  }
+
+  function pollUntilReady(requestId, pollSecret) {
+    var attempts = 0;
+    stopPolling();
+    function tick() {
+      attempts += 1;
+      if (attempts > 45) {
+        stopPolling();
+        setSyncStatus("Timed out waiting for approval. Local colour kept.");
+        return;
+      }
+      cloudRequest(
+        "POST",
+        "/api/sync/poll",
+        { requestId: requestId, pollSecret: pollSecret },
+        null,
+        function (err, data, status) {
+          if (status === 404) {
+            stopPolling();
+            setSyncStatus("Sync request expired. Try Enable again.");
+            return;
+          }
+          if (err || !data) {
+            return;
+          }
+          if (data.status === "pending") {
+            return;
+          }
+          if (data.status === "ready" && typeof data.token === "string" && data.token) {
+            stopPolling();
+            syncEnabled = true;
+            syncToken = data.token;
+            syncEmail = typeof data.email === "string" ? data.email : "";
+            saveSyncState();
+            setSyncStatus("Connected. Fetching account colour…");
+            pullCloud();
+          }
+        }
+      );
+    }
+    tick();
+    if (typeof window.setInterval === "function") {
+      pollTimer = window.setInterval(tick, 2000);
+    }
+  }
+
+  function beginCloudSync() {
+    var xhr = gmXhr();
+    if (!xhr) {
+      setSyncStatus("Tampermonkey is required to sync from Sheets. Local colour still works.");
+      return;
+    }
+    setSyncStatus("Waiting for approval on Focus Cell…");
+    cloudRequest("POST", "/api/sync/prepare", {}, null, function (err, data) {
+      if (err || !data || !data.requestId || !data.pollSecret) {
+        setSyncStatus("Could not start sync. Local colour kept.");
+        return;
+      }
+      var path =
+        typeof data.authorizePath === "string" && data.authorizePath.charAt(0) === "/"
+          ? data.authorizePath
+          : "/sync?request=" + encodeURIComponent(data.requestId);
+      var href = SYNC_ORIGIN + path;
+      if (syncOpen) {
+        syncOpen.href = href;
+        if (typeof syncOpen.click === "function") {
+          syncOpen.click();
+        }
+      } else if (typeof window.open === "function") {
+        window.open(href, "_blank", "noopener");
+      }
+      pollUntilReady(data.requestId, data.pollSecret);
+    });
+  }
+
   function loadStored(callback) {
     var finished = false;
     function done(raw) {
@@ -246,6 +606,7 @@
     }
     if (persist !== false) {
       saveConfig();
+      scheduleCloudPush();
     }
     signature = "";
     paintBands();
@@ -379,6 +740,29 @@
       enabled ? "Hide highlight" : "Show highlight"
     );
     shortcutLine.textContent = "Hide shortcut: " + shortcutLabel();
+    if (syncLine) {
+      if (!syncEnabled) {
+        syncLine.textContent = "Cloud sync: off";
+      } else if (syncEmail) {
+        syncLine.textContent = "Cloud sync: on · " + syncEmail;
+      } else {
+        syncLine.textContent = "Cloud sync: on";
+      }
+    }
+    if (syncToggle) {
+      syncToggle.textContent = syncEnabled ? "Turn off cloud sync" : "Enable cloud sync";
+      syncToggle.setAttribute(
+        "aria-label",
+        syncEnabled ? "Turn off cloud sync" : "Enable cloud sync"
+      );
+    }
+    if (syncNote) {
+      syncNote.textContent =
+        syncStatus ||
+        (syncEnabled
+          ? "Confirming account…"
+          : "Optional. Sign in on Focus Cell, then enable. Colour still works locally.");
+    }
     if (tip && tip.style) {
       tip.style.display = !CONFIG.seenTip && !panelOpen ? "block" : "none";
     }
@@ -406,6 +790,9 @@
     panelOpen = open;
     if (open) {
       dismissTip();
+      if (syncEnabled && syncToken) {
+        pullCloud();
+      }
     }
     syncPanel();
     placePanel(gridBox());
@@ -420,7 +807,7 @@
     }
     var tipVisible = !CONFIG.seenTip && !panelOpen;
     var width = panelOpen ? 260 : 36;
-    var height = panelOpen ? 252 : tipVisible ? 92 : 36;
+    var height = panelOpen ? 420 : tipVisible ? 92 : 36;
     Object.assign(panel.style, {
       display: "flex",
       position: "fixed",
@@ -628,7 +1015,7 @@
       lineHeight: "1.35",
     });
     hint.textContent =
-      "Hex and opacity are saved in this browser (and Tampermonkey). Refresh keeps them.";
+      "Hex and opacity are saved in this browser (and Tampermonkey). Refresh keeps them. Cloud sync is optional.";
 
     toggleBtn.type = "button";
     toggleBtn.setAttribute("aria-label", "Hide highlight");
@@ -660,6 +1047,64 @@
     });
     shortcutLine.textContent = "Hide shortcut: " + shortcutLabel();
 
+    syncLine = document.createElement("div");
+    Object.assign(syncLine.style, {
+      fontSize: "11px",
+      color: "#3c4043",
+      lineHeight: "1.35",
+    });
+    syncLine.setAttribute("aria-label", "Cloud sync state");
+
+    syncToggle = document.createElement("button");
+    syncToggle.type = "button";
+    syncToggle.setAttribute("aria-label", "Enable cloud sync");
+    syncToggle.textContent = "Enable cloud sync";
+    Object.assign(syncToggle.style, {
+      width: "100%",
+      boxSizing: "border-box",
+      margin: "0",
+      padding: "6px 8px",
+      border: "1px solid #dadce0",
+      borderRadius: "4px",
+      background: "#fff",
+      color: "#202124",
+      fontSize: "12px",
+      cursor: "pointer",
+    });
+    syncToggle.addEventListener("click", function (event) {
+      halt(event);
+      if (syncEnabled) {
+        stopPolling();
+        disableCloud("Cloud sync is off. Local colour still works.");
+        return;
+      }
+      beginCloudSync();
+    });
+    syncToggle.addEventListener("mousedown", halt);
+
+    syncOpen = document.createElement("a");
+    syncOpen.setAttribute("aria-label", "Open Focus Cell sign-in");
+    syncOpen.textContent = "Open Focus Cell sign-in";
+    syncOpen.href = SYNC_ORIGIN + "/api/auth/google?next=/sync";
+    syncOpen.target = "_blank";
+    syncOpen.rel = "noopener noreferrer";
+    Object.assign(syncOpen.style, {
+      fontSize: "11px",
+      color: "#137333",
+      textDecoration: "underline",
+    });
+    syncOpen.addEventListener("mousedown", keepInPanel);
+    syncOpen.addEventListener("click", keepInPanel);
+
+    syncNote = document.createElement("div");
+    Object.assign(syncNote.style, {
+      fontSize: "10px",
+      color: "#80868b",
+      lineHeight: "1.35",
+    });
+    syncNote.setAttribute("role", "status");
+    syncNote.setAttribute("aria-label", "Cloud sync status");
+
     tip.id = "sheets-focus-cell-tip";
     tip.setAttribute("aria-label", "How to change the highlight colour");
     Object.assign(tip.style, {
@@ -683,6 +1128,10 @@
     tray.appendChild(toggleBtn);
     tray.appendChild(shortcutLine);
     tray.appendChild(hint);
+    tray.appendChild(syncLine);
+    tray.appendChild(syncToggle);
+    tray.appendChild(syncOpen);
+    tray.appendChild(syncNote);
     panel.appendChild(tray);
     panel.appendChild(tip);
     panel.appendChild(swatch);
@@ -1066,6 +1515,7 @@
 
   function start() {
     loadStored(function () {
+      loadSyncState();
       buildPanel();
       document.body.appendChild(overlay);
       document.body.appendChild(panel);
@@ -1081,6 +1531,9 @@
       });
       watchGrid();
       render();
+      if (syncEnabled && syncToken) {
+        pullCloud();
+      }
     });
   }
 
